@@ -1,0 +1,13 @@
+# Plantilla local. No trackear local.properties real.
+
+sdk.dir=C\:\\Users\\usuario\\AppData\\Local\\Android\\Sdk
+MQTT_HOST=reemplazar-cluster.hivemq.cloud
+MQTT_PORT=8883
+MQTT_USERNAME=reemplazar_usuario_mqtt
+MQTT_PASSWORD=reemplazar_password_mqtt
+MQTT_BASE_TOPIC=/restobar
+MQTT_TIMEOUT_SECONDS=15
+MQTT_DEVICE_ID=restobar-android-1
+BUSINESS_NAME=mi-restobar
+MANAGER_USERNAME=reemplazar_usuario_encargado
+MANAGER_PASSWORD=reemplazar_password_encargado

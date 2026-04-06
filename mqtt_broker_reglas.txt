@@ -1,0 +1,75 @@
+MAPA MQTT PROPUESTO
+
+Base topic:
+/restobar
+
+Canales de entrada hacia el server:
+/restobar/android/in/auth/login/request
+/restobar/android/in/history/request
+/restobar/android/in/system/web-session/close/request
+
+Canales de salida desde el server hacia Android:
+/restobar/android/out/{deviceId}/auth/login/response
+/restobar/android/out/{deviceId}/current/dashboard/metrics
+/restobar/android/out/{deviceId}/current/dashboard/revenue
+/restobar/android/out/{deviceId}/current/queue/{statusBucket}/{queueType}
+/restobar/android/out/{deviceId}/history/{requestId}/meta
+/restobar/android/out/{deviceId}/history/{requestId}/dashboard/metrics
+/restobar/android/out/{deviceId}/history/{requestId}/dashboard/revenue
+/restobar/android/out/{deviceId}/history/{requestId}/queue/{queueType}
+/restobar/android/out/{deviceId}/history/{requestId}/complete
+/restobar/android/out/{deviceId}/system/web-session/closed
+/restobar/android/out/{deviceId}/system/web-session/close-rejected
+
+Wildcard esperados del lado Android:
+/restobar/android/out/{deviceId}/auth/#
+/restobar/android/out/{deviceId}/system/#
+/restobar/android/out/{deviceId}/current/dashboard/+
+/restobar/android/out/{deviceId}/current/queue/+/#
+/restobar/android/out/{deviceId}/history/+/#
+
+ACL MINIMAS SUGERIDAS
+
+1. Usuario del publicador server MQTT
+Publicar:
+/restobar/android/out/+/#
+
+Suscribir:
+/restobar/android/in/#
+
+2. Usuario del encargado movil Android
+Publicar:
+/restobar/android/in/auth/login/request
+/restobar/android/in/history/request
+/restobar/android/in/system/web-session/close/request
+
+Suscribir:
+/restobar/android/out/{deviceId}/auth/#
+/restobar/android/out/{deviceId}/system/#
+/restobar/android/out/{deviceId}/current/dashboard/+
+/restobar/android/out/{deviceId}/current/queue/+/#
+/restobar/android/out/{deviceId}/history/+/#
+
+ALTERNATIVA SI HIVEMQ CLOUD NO PERMITE ACL POR DEVICE ID
+
+Publicar Android:
+/restobar/android/in/#
+
+Suscribir Android:
+/restobar/android/out/+/#
+
+Esta alternativa funciona, pero es menos estricta desde seguridad y aislamiento.
+
+CRITERIO DE DISENO
+
+- El estado actual se publica por fragmentos chicos.
+- Dashboard y colas viajan por topics separados.
+- Historicos viajan por requestId y por tipo de dato.
+- Si se pierde una publicacion, se pierde un fragmento acotado y no un snapshot completo.
+- El cliente Android puede suscribirse con comodines de 1 nivel y n niveles.
+
+NOTA SOBRE EL PUENTE INTERNO
+
+- La reduccion adicional de polling no requiere nuevas reglas en HiveMQ Cloud.
+- El disparo fino entre `domain` y `mqtt-publisher` se resuelve internamente con eventos via PostgreSQL LISTEN/NOTIFY.
+- Para el broker MQTT, las ACL sugeridas arriba siguen siendo suficientes.

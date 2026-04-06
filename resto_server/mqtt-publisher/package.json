@@ -1,0 +1,14 @@
+{
+  "name": "restobar-mqtt-publisher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "fastify": "^5.2.1",
+    "mqtt": "^5.10.4"
+  }
+}

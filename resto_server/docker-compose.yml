@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: restobar-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  domain:
+    build:
+      context: ./domain
+    container_name: restobar-domain
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ./gateway
+    container_name: restobar-gateway
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - domain
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    volumes:
+      - ./assets:/app/assets:ro
+
+  reverse-proxy:
+    build:
+      context: .
+      dockerfile: ./reverse-proxy/Dockerfile
+    container_name: restobar-reverse-proxy
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    ports:
+      - "5173:80"
+      - "5174:81"
+
+  mqtt-publisher:
+    build:
+      context: ./mqtt-publisher
+    container_name: restobar-mqtt-publisher
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      domain:
+        condition: service_started
+
+  tunel-service:
+    build:
+      context: ./tunel-service
+    container_name: restobar-tunel-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - reverse-proxy
+
+volumes:
+  postgres_data:

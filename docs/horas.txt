@@ -1,0 +1,5 @@
+2hs primer borrador
+6hs especificación requerimientos
+8hs comenzar a codear
+4hs pruebas despliegue
+8hs hacer andar la bidireccionalidad de la carta

@@ -1,0 +1,88 @@
+floral-resto
+
+contexto
+--------
+considerar una pequeña o mediana empresa del rubro gastronomico, tipicamente un restaurante o bar capaz de atender unas 20 mesas (a modo orienteativo)
+
+requerimiento
+-------------
+desarrollar un ecosistema compuesto de dos servicios:
+1- un server web capaz de mediar la interaccion entre un cliente del comercio y un atendedor.
+el primero se conectaria a una url de atencion paremetrizada con la mesa (saber desde qué mesa se conecta) y el segundo se conectaria a otra url
+destinada a atencion del lado del "mostrador" recepcionando consultas, pedidos, etc tal como un mozo-digital.
+2- una app movil android de monitoreo, destinada a una figura de encargado
+
+server web mozo-digital
+-----------------------
+esta app sera cliente-servidor web, desplegada en el lugar de trabajo, es decir en la misma LAN donde estaran conectados el/los mozos y el/los clientes.
+llamamos cliente al cliente del negocio, es decir la persona que entra al local fisico a consumir algo. llamamos mozos a los empleados fisicos 
+que utilizaran este sistema para potenciar/multiplexar su servicio de atencion en mesa. un configuracion con tunel efimero a cloudflare (por ahora
+pero pensarlo para que si escala pueda migrarse a tunel nombrado), esto para permitir al cliente que no se conecte via la LAN del local sino 
+pueda usar su portabilidad movil para llegar al server.
+
+desde el punto de vista del cliente, este podra escribir una url en el navegador de su movil (posteriormente se puede mejorar este paso
+facilitando un QR en la mesa para que pueda escanear sin tener que estar escribiendo ninguna url complicada) y eso le traera una tipica carta/menu 
+de restaurante. el numero de mesa desde donde se conectara sera un parametro de la conexion, que en caso de no entregar al primer get, el server
+debera devolver un formulario minimalista de "bienvenido, indique numero de mesa". el numero estara fisicamente visible en la mesa, aunque de
+implementarse con QR este dato ya estara embebido y no sera necesario indicar nada. luego de este "login" se presentara la carta como a una serie
+de hojas -o sábana- compuesta por filas, donde cada fila tendra a modo de titulo el nombre del producto (ya sea bebida o comida), por debajo una
+buena descripcion de lo que se trata, a la derecha de este conjunto el precio y dos botones, uno de "pedir" y otro de "consultar".
+el arbol tematico de productos, cómo se ordenan ellos, cuál es el precio de cada uno y su descripcion deben ser editables desde un archivo json
+externo. sera necesario un observador de modificacion de este archivo, tal que al inmediato cambio, dispare un callback para despertar un servicio
+responsable de actualizar todo el menu en memoria. la frecuencia del observador la fijaremos en 5 segundos (congigurable).
+si el cliente hace click en "pedir" el boton debe transformarse en "descartar" admitiendo la posibilidad que se arrepienta de lo que acaba de 
+pedir. al pie de la pagina y siempre visible, deben estar los botones "llamar mozo" y "confirmar pedido".
+el primer boton generará una secuencia tal que el mozo (atendedor o mozo central frente al lado atencion del sistema) vea un mensaje de que 
+piden un mozo fisico en la mesa X. el boton confirmar pedido enviara un mensaje con la lista de platos/bebidas solicitadas en la mesa.
+la carta debe ser multiusuario por mesa. lo que implica que en una mesa donde se sienta mas de una persona, y dos o mas de ellas levantan la 
+carta web identificando correctamente la mesa, deberan verse en la misma sesion en el intercambio de pedidos, es decir si un cliente pide por 
+ejemplo una copa de vino del menu, el otro cliente conectado a la misma mesa debe ver marcado ese pedido, tal como si él mismo lo hubiera hecho.
+ademas el server web debera manejar una referencia de lider de la mesa, quien sera el unico autorizado para "confirmar el pedido".
+ese dato debe salir de algun id autogenerado a partir del primer get que abre la conexion + id de mesa.
+si ese lider cierrar su navegador porque no le interesa seguir mirando pero no llego a ejecutar nada (o quiza hizo un pedido pero no lo confirmo)
+el token del lider debe quedar vacante y ser reasignado a cualquiera de los otros que esten conectados a la misma sesion (que no es mas que una mesa en un tiempo).
+el criterio de asignacion del proximo a designar como lider, puede ser algun indicador de antigüedad de la conexion)
+
+desde el punto de vista del mozo, sera un persona siempre interactuando con el server pero no como cliente sino como mozo
+(hacer una distincion por login).
+el mozo vera una serie de colas de eventos en mesas donde en la cabeza estara la proxima en atender (la que hace mas tiempo esta en cola). 
+seran tres colas tematicas:
+cola 1: aquellas mesas que entren con mensajes generados desde el "consultar" de cada item de la carta que ve el cliente, iran a parar a la cola
+de "mensajes de mesas"
+cola 2: aquellas mesas que entren con "pedido confirmado" iran a la cola de "pedidos para la cocina".
+cola 3: aquellos mensajes de "llamar mozo" generados por el cliente, iran a parar a una cola de "solicita atencion presencial".
+
+el mozo-digital vera estas tres cola con un formato 3 columnas en pantalla, cada una master-detail donde al hacer click sobre cualquier de los
+master la columan contenedora de este master se redibujara como el detail asociado, para permitir ver con detalle de que se trata. el detail ademas
+tendra un boton de "recibido" que podrá presionar el mozo-digital y que sera el indicador en sistema de que el pedido de un mozo en mesa ya fue
+efectivamente notificado (Se le aviso a un mozo que se acerque a la mesa) o que el pedido a la cocina ya fue comandado (la cocina o la barra ya 
+estan enterados) y si es una consulta, el mozo-virtual ya stuvo chateando con el cliente y resolvieron la duda. esto implica aceptar que los
+eventos generados desde el cliente, estas instancias de interaccion o "mensajes" tiene estados formales, pueden ser desccritos por una fsm. 
+entonces cuando el cliente genera un nuevo mensaje este estara en estado "pendiente" (las colas por defecto que vera el mozo-digital).
+cuando el mozo presione "recibido" la fsm para ese mensaje pasara al estado "atendido" y como la vista de colas multiples por defecto es la de
+"pendiente" entonces el mensaje desaparecera de la cola. sera necesario un toggle general, por fuera del contenedor de colas, para conmutar entre
+la vista de pendientes y atendidos. para el caso de la cola 1, la implementacion del detail debera ser un chat bidireccional, donde se vea toda la
+conversacion. cuando el mozo la marque como atendida, esa conversacion no aceptara mas entradas, y del lado del cliente debera verse automensaje
+de "esta conversacion fue cerrada, si tiene otra consulta genere una nueva".
+
+este servicio tendra un componente mqtt para resolver todas las publicaciones hacias la app movil. ademas el server gestionara todo el computo valores
+requeridos para la construccion del dashboard. sera la unica autoridad de verdad.
+
+en cuando a las tecnologias, framework front VUE. backend full nodejs, base de datos postgresql y broker mqtt de hivemq.
+debe estar todo dockerizado. cada responsabilidad del sistema, debe ser un micro-servicio o como mucho uno y solo uno 
+servicio macro. dentro de la subcarpeta ./resto_server debera estar el orquestador docker-compose y una carpeta por
+cada servicio. los nombres de carpeta para servicio deben llamarse como el servicio que representan. 
+todos los valores sensibles de la app se cargaran desde .env (exluido en git) con un .env.example que hara de plantilla (incluido en git)
+
+app movil android
+-----------------
+sera un dashboard minimo de consulta. debera verse muy similar a la vista atendedor del mozo-digital, pero no admitira edicion. esta persona con
+acceso a la app tendra un perfil de encargado, y podra observar pero no intervenir modificando estados de los mensajes ni borrando o agregando chats
+en una conversacion en curso. solo observacion. sera una app en solapas multiples, arrastrables por touch sostenido, con navegacion izq-der. 
+la solapa dashboard sera la primer, y hacia la derecha esta la de cola multiples de pendiente, y mas a la derecha la de colas multiples de atendido.
+el dash tendra informacion de resumen tipica, esto se vera en detalle mas adelante.
+
+esta app estara suscripta a un servicio mqtt desde donde recibira todas las novedades sobre los estados de cada mensaje y metricas requeridas por el dashboard.
+todos los valores sensibles de la app se cargaran desde local.properties (exluido en git) con un local.properties.example que hara de plantilla (incluido en git)
+
+la app debera estar desplegada en la subcarpeta ./resto_app

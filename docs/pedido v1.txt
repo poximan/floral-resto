@@ -1,0 +1,291 @@
+Necesito que diseñes e implementes un ecosistema para un pequeño o mediano restaurante/bar, pensado para unas 20 mesas aproximadamente. El sistema debe componerse de dos aplicaciones:
+
+1. Un server web desplegable en la LAN del comercio, con una parte publica para clientes de mesa y una parte interna para mozo y encargado.
+2. Una app movil Android de consulta para el encargado, conectada exclusivamente por MQTT.
+
+Idioma y metodologia obligatorios:
+- microservicios en `./resto_server`
+- app Android en `./resto_app`
+- backend Node.js + Fastify + JavaScript
+- frontend web con Vue 3 + Vite
+- Android con Kotlin + Jetpack Compose + Room
+- PostgreSQL como unica base de datos
+- HiveMQ Cloud como broker MQTT
+- dockerizacion del lado server
+- contratos duros, fail-fast y sin fallbacks blandos
+- fuente de verdad unica centralizada
+- textos Android siempre en recursos
+
+REQUERIMIENTO FUNCIONAL GENERAL
+
+A. CLIENTE DE MESA WEB
+El cliente debe poder entrar desde su celular a una URL parametrizada por mesa. Si falta el numero de mesa, el sistema debe mostrar un formulario simple para ingresarlo. La mesa debe existir en una tabla administrable y su identificador visible sera numerico.
+
+Al entrar a una mesa:
+- si no existe sesion activa para esa mesa, se crea una nueva sesion de mesa
+- si ya existe una sesion activa, el cliente se suma a esa sesion compartida
+- cada navegador/pestania recibe una sub-sesion anonima propia dentro de la mesa, llamada `clienteSesionId`, de 3 caracteres, unica dentro de la sesion de mesa
+- esta sub-sesion debe persistir ante refresh usando `sessionStorage`
+- si el navegador duplica pestania y hereda la misma sub-sesion, eso es aceptable
+
+La sesion de mesa:
+- se crea cuando entra el primer cliente a una mesa sin sesion activa
+- permanece abierta hasta que el mozo la cierre explicitamente
+- si todos los clientes se desconectan, la sesion no se destruye: queda vacia y conserva su estado operativo
+- si luego alguien vuelve a entrar a esa mesa antes del cierre del mozo, se suma a la misma sesion abierta
+- la unica accion que elimina la sesion y computa el cobro es el cierre de mesa realizado por el mozo
+
+Debe existir un lider de mesa:
+- se define por antiguedad de conexion
+- solo el lider puede confirmar el pedido
+- si el lider se desconecta, el siguiente mas antiguo hereda el liderazgo
+- si cualquier cliente se retira de la sesion y luego reingresa una vez confirmada su salida, entra como cliente nuevo
+
+Retiro de cliente de mesa:
+- el cierre de pestania o corte de conexion no confirma la salida de inmediato
+- debe existir una gracia de desconexion parametrizable por `.env`
+- durante esa gracia el cliente sigue contando como conectado para presencia y liderazgo
+- si el cliente reconecta dentro de esa gracia, conserva su `clienteSesionId` y se cancela la salida pendiente
+- si la salida se confirma y luego vuelve a entrar, debe recibir un nuevo `clienteSesionId`
+
+La web cliente debe tener dos solapas:
+- `menu`
+- `estado del pedido`
+
+En `menu`:
+- los productos se muestran agrupados por categoria
+- las categorias tienen orden explicito
+- los productos dentro de una categoria van alfabeticamente por titulo
+- cada producto muestra titulo, descripcion, precio y opcionalmente imagen
+- la imagen se sirve desde assets locales del server y en base se guarda solo el nombre de archivo
+
+La dinamica de pedido por producto debe ser:
+- si contador = 0, solo se ve boton `pedir`
+- si se presiona `pedir`, contador +1
+- si contador >= 1, aparece boton `descartar` a la izquierda del contador
+- si se presiona `descartar`, contador -1
+- mientras contador >= 1, el contador queda entre `descartar` y `pedir`
+
+Reglas del carrito:
+- el carrito es compartido por la mesa
+- cada item pendiente de confirmar tiene un unico propietario actual representado por `clienteSesionId`
+- solo el propietario actual puede quitar items de su parte del carrito
+- la autoria del carrito pendiente es transferible y no conserva historial de propietarios anteriores
+- si un cliente se retira y existe lider vigente, su parte pendiente del carrito pasa automaticamente al lider actual
+- si el cliente que se retira era el lider, el nuevo lider hereda su parte pendiente del carrito al asumir el liderazgo
+- si todos los clientes se retiran, el carrito pendiente queda huerfano hasta el proximo ingreso a la sesion
+- cuando entra un nuevo cliente a una sesion vacia y queda como lider, hereda como propio todo el carrito pendiente huerfano
+- si refresca, recupera la misma sesion y sigue como estaba
+- al confirmar, se confirma todo el carrito
+- al confirmar, los precios se congelan en el pedido
+- despues de confirmar, todos los contadores vuelven a cero
+- despues de confirmar, puede volver a armarse un carrito nuevo y confirmarse otro pedido dentro de la misma sesion de mesa
+- una misma sesion de mesa puede generar n pedidos confirmados antes del cierre del mozo
+- el pedido no puede cancelarse
+
+El cliente tambien puede:
+- abrir una consulta textual
+- llamar a un mozo fisico
+- cambiar la visualizacion monetaria entre ARS y USD
+
+Reglas adicionales:
+- solo puede haber una consulta abierta por mesa a la vez
+- una nueva consulta solo puede abrirse cuando la anterior fue cerrada
+- solo puede haber un llamado a mozo pendiente por vez
+- despues de confirmar pedido, la mesa igualmente puede seguir haciendo consultas y llamados
+- la conversion ARS/USD es solo visual para el cliente; internamente todo se persiste en pesos
+
+La solapa `estado del pedido` debe mostrar solo datos de su mesa:
+- carrito pendiente actual
+- pedidos ya enviados en la sesion actual
+- estado del llamado a mozo
+- estado de la consulta abierta
+- cantidad de pedidos confirmados enviados
+- total monetario de la mesa
+
+Si el mozo cierra la mesa:
+- los clientes conectados reciben una notificacion
+- no pueden seguir operando esa sesion
+- se les ofrece opcion para ingresar nuevamente
+
+B. MENU, CATEGORIAS, MESAS Y CONFIGURACION
+El menu ya no debe salir de un JSON ni de archivos observados. Debe administrarse con CRUD en PostgreSQL.
+
+CRUD exclusivos:
+- categorias: solo encargado
+- productos: solo encargado
+- mesas: mozo
+
+Categorias:
+- tienen orden explicito
+- cada producto pertenece a una y solo una categoria obligatoria
+- una categoria no se puede borrar si tiene productos activos
+- si se intenta borrar, mostrar modal indicando los productos que bloquean la operacion
+
+Productos:
+- `id` autoincremental de base de datos
+- titulo
+- descripcion
+- precio en ARS
+- disponible / activo
+- categoria obligatoria
+- imagen opcional por nombre de archivo
+
+Reglas de edicion del catalogo mientras hay clientes conectados:
+- el sistema debe actualizar el menu en caliente usando WebSocket
+- no debe cortar sesion
+- si cambia el precio de un producto no confirmado, el carrito toma el precio nuevo
+- si cambia nombre o descripcion, solo refresca la visualizacion
+- si el producto se desactiva y estaba en carrito no confirmado, debe eliminarse automaticamente del carrito y mostrarse un mensaje explicito al cliente
+- si un producto ya estaba confirmado, ese pedido conserva su snapshot propio y no cambia
+
+La configuracion visual ARS/USD:
+- la define el mozo en una solapa interna de configuracion
+- es un valor orientativo
+- no se persiste como historico de negocio
+- no aparece en dashboard
+
+La lista de mesas:
+- se administra desde ABM simple en la web interna del mozo
+- una mesa no puede darse de baja si tiene sesion activa
+
+C. PANEL WEB INTERNO
+Debe existir una sola app web interna con login y rutas protegidas por rol:
+- `mozo`
+- `encargado`
+
+Credenciales iniciales:
+- configurables por `.env`
+- por defecto: `mozo/mozo` y `encargado/encargado`
+
+Exclusividad de sesiones:
+- solo un mozo web activo
+- solo un encargado web activo
+- si entra un segundo mozo y el actual tuvo cambios de FSM en alguna cola durante los ultimos 2 minutos, rechazar login explicando el motivo
+- si no hubo actividad FSM en 2 minutos, permitir reemplazo
+- si entra un segundo encargado web y el actual tuvo actividad de sesion en los ultimos 20 minutos, rechazar
+- si el encargado web estuvo inactivo 20 minutos, permitir reemplazo
+- la app Android del encargado debe poder expulsar la sesion web del encargado por MQTT
+
+Vista mozo:
+- tres colas: consultas, pedidos confirmados para cocina, llamados a mozo
+- vista por defecto en pendientes
+- toggle global pendientes / atendidos
+- orden FIFO por antiguedad
+- contador visual en cabecera con elementos nuevos no vistos
+- formato master-detail por columna
+
+Estados:
+- FSM general solo con `pendiente` y `atendido`
+- pedidos confirmados para cocina y llamados a mozo pasan a `atendido` al presionar `recibido`
+- las consultas no usan boton `recibido`; usan `cerrar conversacion`
+- una consulta pasa a `atendido` al cerrarse
+
+Chat de consulta:
+- bidireccional entre cliente y mozo
+- una sola consulta abierta por mesa
+- cuando se cierra, ya no acepta nuevas entradas
+- cerrar conversacion debe pedir confirmacion modal
+- el cliente no conserva historial visible de conversaciones cerradas
+- el mozo si puede verlas en atendidos
+
+Vista encargado web:
+- dashboard
+- detalle solo lectura de pendientes y atendidos
+- CRUD de categorias
+- CRUD de productos
+- selector/galeria de imagenes existentes en assets
+
+Sobre las imagenes:
+- no se suben desde el CRUD
+- el backend expone un listado de imagenes precargadas en una carpeta local del host
+- el CRUD muestra miniaturas y permite elegir una
+- se persiste solo el nombre del archivo elegido
+
+D. DASHBOARD
+Debe existir para encargado web, encargado Android y cliente de mesa, con distinto nivel de detalle.
+
+Dashboard del encargado:
+- contadores totales por cola
+- tiempos medios, minimos y maximos de atencion
+- dinero total de la jornada
+- dinero recaudado por mesa en lo que va de la jornada
+
+Reglas economicas:
+- confirmar pedido no equivale a dinero recaudado
+- cerrar mesa si equivale a cobro
+- los totales del dashboard se calculan por mesas cerradas
+- una mesa con pedido confirmado pero aun abierta puede seguir consultando o llamando mozo sin alterar el total economico hasta el cierre
+
+Jornada:
+- configurable por `.env`
+- ejemplo valido: 08:00 a 07:59 del dia siguiente
+
+Persistencia temporal:
+- timestamps en UTC
+- visualizacion segun zona horaria configurable por `.env`
+
+E. APP ANDROID DEL ENCARGADO
+Debe ser un monitor solo lectura. No hace CRUD ni usa HTTP. Su unico canal con el server central es MQTT.
+
+Capacidades:
+- login por MQTT
+- rechazo de segundo dispositivo con mensaje tipo Toast
+- recepcion de snapshot inicial por MQTT
+- recepcion de novedades por MQTT
+- solicitud de historicos por rango fecha/hora via MQTT
+- respuesta del server con dataset completo del rango pedido
+- persistencia local con Room
+- si el dato del server entra en conflicto con cache local, prevalece el server
+- indicador online/offline por estado del broker
+- boton de configuracion `cerrar sesion web` para expulsar al encargado logueado en web
+
+Navegacion:
+- orientada a telefono
+- paginas horizontales tipo pager
+- primera solapa: dashboard
+- luego pendientes
+- luego atendidos
+- puede abrir detalles, pero no modificar nada
+
+Configuracion sensible de Android:
+- `local.properties` real fuera de git
+- `local.properties.example` version plantilla
+- incluir host/puerto MQTT, credenciales, topics base y timeouts
+
+F. ARQUITECTURA TECNICA REQUERIDA
+Dentro de `./resto_server` debe existir un `docker-compose` y una carpeta por servicio.
+
+Servicios propuestos:
+- `reverse-proxy`
+- `gateway`
+- `domain`
+- `mqtt-publisher`
+- `web-carta`
+- `web-gestion`
+- `postgres`
+
+Contratos:
+- entre microservicios internos: HTTP
+- solo `domain` puede hablar con PostgreSQL
+- `gateway` no persiste directo
+- Android solo MQTT
+- web solo HTTP + WebSocket
+
+Realtime web:
+- usar WebSocket
+
+Despliegue:
+- server en LAN
+- Cloudflare Tunnel apunta solo a `reverse-proxy`
+- acceso interno solo en LAN
+- URL publica expone solo la parte cliente
+
+G. CRITERIOS DE IMPLEMENTACION
+- respetar arquitectura modular y fronteras claras
+- centralizar reglas en dominio
+- no ocultar errores
+- no meter retrocompatibilidades blandas
+- pruebas black-box cuando corresponda
+- logs estructurados por servicio
+- healthchecks no prioritarios salvo necesidad funcional
