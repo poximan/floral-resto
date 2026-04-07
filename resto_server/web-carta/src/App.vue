@@ -844,7 +844,7 @@ onBeforeUnmount(() => {
           :disabled="loading || !canConfirmOrder"
           @click="confirmOrder"
         >
-          Confirmar pedido
+          Confirmar
         </button>
       </footer>
     </template>

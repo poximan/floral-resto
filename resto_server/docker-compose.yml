@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${POSTGRES_HOST_PORT}:${POSTGRES_PORT}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
@@ -42,7 +42,7 @@ services:
     depends_on:
       - domain
     ports:
-      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+      - "${GATEWAY_HOST_PORT}:${GATEWAY_PORT}"
     volumes:
       - ./assets:/app/assets:ro
 
@@ -55,8 +55,8 @@ services:
     depends_on:
       - gateway
     ports:
-      - "5173:80"
-      - "5174:81"
+      - "${WEB_CARTA_PORT}:80"
+      - "${WEB_GESTION_PORT}:81"
 
   mqtt-publisher:
     build:

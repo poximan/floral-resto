@@ -37,6 +37,18 @@ let domainEventStreamConnected = false;
 let domainEventReconnectTimer = null;
 let domainEventAbortController = null;
 
+function buildAllowedLocalOrigins() {
+  const ports = [
+    process.env.WEB_CARTA_PORT,
+    process.env.WEB_GESTION_PORT,
+  ].filter(Boolean);
+
+  return ports.flatMap((port) => [
+    `http://localhost:${port}`,
+    `http://127.0.0.1:${port}`,
+  ]);
+}
+
 await app.register(cors, {
   origin(origin, callback) {
     if (!origin) {
@@ -45,10 +57,7 @@ await app.register(cors, {
     }
 
     const allowedOrigins = new Set([
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'http://localhost:5174',
-      'http://127.0.0.1:5174',
+      ...buildAllowedLocalOrigins(),
       process.env.CLOUDFLARE_PUBLIC_CLIENT_URL,
     ].filter(Boolean));
 

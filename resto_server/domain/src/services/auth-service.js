@@ -3,7 +3,6 @@ import { DomainError } from './domain-error.js';
 
 const ROLE_WAITER = 'mozo';
 const ROLE_MANAGER = 'encargado';
-const WAITER_LOCK_WINDOW_MS = 2 * 60 * 1000;
 const MANAGER_IDLE_WINDOW_MS = 20 * 60 * 1000;
 
 function normalizeRole(role) {
@@ -22,7 +21,6 @@ function getRoleConfig(config, role) {
       username: config.waiterUsername,
       password: config.waiterPassword,
       actorNombre: config.waiterUsername,
-      lockWindowMs: WAITER_LOCK_WINDOW_MS,
     };
   }
 
@@ -30,7 +28,6 @@ function getRoleConfig(config, role) {
     username: config.managerUsername,
     password: config.managerPassword,
     actorNombre: config.managerUsername,
-    lockWindowMs: MANAGER_IDLE_WINDOW_MS,
   };
 }
 
@@ -107,18 +104,24 @@ function assertCredentials(expected, provided, role) {
   }
 }
 
-function buildActiveSessionError(role) {
-  if (role === ROLE_WAITER) {
-    return new DomainError(
-      409,
-      'Ya hay un mozo activo. El ingreso solo se habilita si no hubo cambios en las colas durante los ultimos 2 minutos.',
-    );
-  }
-
+function buildManagerActiveSessionError() {
   return new DomainError(
     409,
     'Ya hay un encargado web activo. El ingreso solo se habilita si no hubo actividad web durante los ultimos 20 minutos.',
   );
+}
+
+async function publishWaiterWebSessionEvent(client, publishDomainEvent, event, reason, actorNombre) {
+  if (!publishDomainEvent) {
+    return;
+  }
+
+  await publishDomainEvent(client, {
+    type: 'waiter_web_session',
+    event,
+    reason,
+    actorNombre: actorNombre ?? null,
+  });
 }
 
 async function publishManagerWebSessionEvent(client, publishDomainEvent, event, reason, actorNombre) {
@@ -154,31 +157,50 @@ async function login(pool, config, recordAuditEvent, publishDomainEvent, payload
 
     const existingSession = await getSessionByRole(client, role);
     if (existingSession) {
-      const ageMs = getSessionAgeMs(existingSession.ultimo_evento_relevante_en);
-
-      if (ageMs < roleConfig.lockWindowMs) {
-        throw buildActiveSessionError(role);
-      }
-
-      await recordAuditEvent(client, {
-        agregado: 'roles_web_sessions',
-        agregadoId: role,
-        evento: 'login_reemplazado_por_inactividad',
-        actorTipo: role,
-        actorReferencia: existingSession.actor_nombre,
-        payload: {
-          sessionTokenAnterior: existingSession.session_token,
-          ultimoEventoRelevanteEn: existingSession.ultimo_evento_relevante_en,
-        },
-      });
-      await deleteSessionByRole(client, role);
-
       if (role === ROLE_MANAGER) {
+        const ageMs = getSessionAgeMs(existingSession.ultimo_evento_relevante_en);
+
+        if (ageMs < MANAGER_IDLE_WINDOW_MS) {
+          throw buildManagerActiveSessionError();
+        }
+
+        await recordAuditEvent(client, {
+          agregado: 'roles_web_sessions',
+          agregadoId: role,
+          evento: 'login_reemplazado_por_inactividad',
+          actorTipo: role,
+          actorReferencia: existingSession.actor_nombre,
+          payload: {
+            sessionTokenAnterior: existingSession.session_token,
+            ultimoEventoRelevanteEn: existingSession.ultimo_evento_relevante_en,
+          },
+        });
+        await deleteSessionByRole(client, role);
         await publishManagerWebSessionEvent(
           client,
           publishDomainEvent,
           'closed',
           'reemplazada_por_inactividad',
+          existingSession.actor_nombre,
+        );
+      } else {
+        await recordAuditEvent(client, {
+          agregado: 'roles_web_sessions',
+          agregadoId: role,
+          evento: 'login_reemplazado_por_nuevo_login',
+          actorTipo: role,
+          actorReferencia: existingSession.actor_nombre,
+          payload: {
+            sessionTokenAnterior: existingSession.session_token,
+            reemplazadaPor: roleConfig.actorNombre,
+          },
+        });
+        await deleteSessionByRole(client, role);
+        await publishWaiterWebSessionEvent(
+          client,
+          publishDomainEvent,
+          'closed',
+          'reemplazada_por_nuevo_login',
           existingSession.actor_nombre,
         );
       }

@@ -161,12 +161,12 @@ CREATE TABLE IF NOT EXISTS eventos_auditoria (
 );
 
 INSERT INTO configuraciones_operativas (clave, valor_texto)
-VALUES ('visual_usd_exchange_rate', '1000.00')
+VALUES ('visual_usd_exchange_rate', '1500.00')
 ON CONFLICT (clave) DO NOTHING;
 
 INSERT INTO mesas (numero)
 SELECT numero
-FROM generate_series(1, 20) AS numero
+FROM generate_series(1, 10) AS numero
 ON CONFLICT (numero) DO NOTHING;
 
 INSERT INTO categorias (titulo, orden)

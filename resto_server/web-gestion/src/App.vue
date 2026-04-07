@@ -77,21 +77,6 @@ const mesaActionLabel = computed(() => {
   return `Crear mesa ${mesaNumero}`;
 });
 
-const visualExchangeRateSummary = computed(() => {
-  const rawValue = Number(visualConfig.value?.visualUsdExchangeRate ?? 0);
-
-  if (!Number.isFinite(rawValue) || rawValue <= 0) {
-    return 'Todavia no se definio una referencia visual para mostrar dolares en la carta.';
-  }
-
-  const formattedValue = new Intl.NumberFormat('es-AR', {
-    minimumFractionDigits: rawValue % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(rawValue);
-
-  return `Referencia actual: 1 USD = ARS ${formattedValue}. Solo afecta lo que ve el cliente cuando cambia la moneda en pantalla.`;
-});
-
 function clearFeedback() {
   errorMessage.value = '';
   infoMessage.value = '';
@@ -271,6 +256,11 @@ function handleRemoteSessionClosure(message) {
 }
 
 async function handleDomainRealtimeEvent(payload) {
+  if (payload?.type === 'waiter_web_session' && payload.event === 'closed' && currentRole.value === 'mozo') {
+    handleRemoteSessionClosure('La sesion del mozo fue reemplazada por otro ingreso. Puedes volver a entrar cuando quieras.');
+    return;
+  }
+
   if (payload?.type === 'manager_web_session' && payload.event === 'closed' && currentRole.value === 'encargado') {
     handleRemoteSessionClosure('La sesion interna del encargado fue cerrada y debes volver a ingresar.');
     return;
@@ -389,16 +379,13 @@ async function fetchJson(url, options = {}) {
     headers: getHeaders(options),
   });
   const payload = await parseResponsePayload(response);
+  const sessionErrorMessage = payload?.error ?? 'La sesion interna fue cerrada. Debes volver a ingresar.';
 
   if (!response.ok) {
     if (response.status === 401) {
-      handleRemoteSessionClosure('La sesion interna vencio o fue cerrada. Debes volver a ingresar.');
+      handleRemoteSessionClosure(sessionErrorMessage);
     }
-    throw new Error(
-      response.status === 401
-        ? 'La sesion interna vencio o fue cerrada. Debes volver a ingresar.'
-        : payload?.error ?? 'La solicitud no pudo completarse',
-    );
+    throw new Error(response.status === 401 ? sessionErrorMessage : payload?.error ?? 'La solicitud no pudo completarse');
   }
 
   return payload;
@@ -936,6 +923,19 @@ onBeforeUnmount(() => {
         <h1>Panel unificado</h1>
         <p class="subtitle">Base administrativa y operativa para mozo y encargado.</p>
       </div>
+          <article v-if="authSession && currentRole === 'mozo'" class="login-card hero-config-card">
+        <span>Conversion ARS/USD</span>
+        <form class="simple-form stacked-form hero-config-form" @submit.prevent="saveVisualConfig">
+          <input
+            v-model="configForm.visualUsdExchangeRate"
+            type="number"
+            min="1"
+            step="0.01"
+            placeholder="Pesos por 1 USD, por ejemplo 1500"
+          />
+          <button class="primary-button" :disabled="loading">Confirmar</button>
+        </form>
+      </article>
       <div class="login-card" v-if="authSession">
         <span>Sesion</span>
         <strong>{{ authSession.role }} / {{ authSession.actorNombre }}</strong>
@@ -1059,13 +1059,10 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <section class="panel-block secondary-grid">
+          <section class="panel-block">
             <article class="admin-card">
               <h2>Alta de mesas</h2>
-              <p class="section-help">
-                Ingresa el numero exacto de la mesa que queres dar de alta. Si escribes
-                <strong> 4 </strong>, se crea la <strong>mesa 4</strong>. No agrega cuatro mesas.
-              </p>
+              <p>ingresa el numero que identifica la mesa que queres dar de alta</p>
               <form class="simple-form" @submit.prevent="createMesa">
                 <input
                   v-model="mesaForm.numero"
@@ -1075,7 +1072,7 @@ onBeforeUnmount(() => {
                 />
                 <button class="primary-button" :disabled="loading">{{ mesaActionLabel }}</button>
               </form>
-              <div class="table-list">
+              <div class="table-list table-list-mesas">
                 <article v-for="mesa in mesas" :key="mesa.id" class="table-row">
                   <div>
                     <strong>Mesa {{ mesa.numero }}</strong>
@@ -1087,28 +1084,6 @@ onBeforeUnmount(() => {
                   </div>
                 </article>
               </div>
-            </article>
-
-            <article class="admin-card">
-              <h2>Conversion visual ARS a USD</h2>
-              <p class="section-help">
-                Define cuantos <strong>pesos</strong> equivalen a <strong>1 dolar</strong> para la
-                conversion visual que ve el cliente en la carta. No cambia precios guardados ni
-                metricas internas.
-              </p>
-              <form class="simple-form" @submit.prevent="saveVisualConfig">
-                <input
-                  v-model="configForm.visualUsdExchangeRate"
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  placeholder="Pesos por 1 USD, por ejemplo 1000"
-                />
-                <button class="primary-button" :disabled="loading">Guardar referencia USD</button>
-              </form>
-              <p v-if="visualConfig" class="section-help section-help-current">
-                {{ visualExchangeRateSummary }}
-              </p>
             </article>
           </section>
         </template>

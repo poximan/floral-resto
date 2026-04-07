@@ -35,7 +35,7 @@ Responsabilidad dominante:
 - ser la unica capa HTTP publica y local para navegadores
 
 Responsabilidades concretas:
-- servir `web-carta` en `http://localhost:5173`
+- servir `web-carta` en `http://localhost:5175`
 - servir `web-gestion` en `http://localhost:5174`
 - servir publicamente `/carta` y `/gestion`
 - mostrar una sola pantalla de pagina no encontrada para rutas invalidas

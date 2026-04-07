@@ -21,7 +21,7 @@ El server central trabaja con una fuente de verdad unica:
 
 ## Entradas locales
 
-- Carta: `http://localhost:5173`
+- Carta: `http://localhost:5175`
 - Gestion: `http://localhost:5174`
 
 ## Publicacion remota

@@ -81,6 +81,10 @@ button {
   padding: 20px;
 }
 
+.hero-config-form {
+  margin-bottom: 0;
+}
+
 .login-card span {
   display: block;
   text-transform: uppercase;
@@ -267,20 +271,6 @@ button {
   box-shadow: 0 12px 28px rgba(36, 93, 69, 0.18);
 }
 
-.section-help {
-  margin: 10px 0 0;
-  color: #4a5f54;
-  line-height: 1.5;
-}
-
-.section-help strong {
-  color: #173226;
-}
-
-.section-help-current {
-  margin-top: 0;
-}
-
 .stacked-form {
   display: grid;
 }
@@ -357,6 +347,10 @@ button {
 .table-list {
   display: grid;
   gap: 10px;
+}
+
+.table-list-mesas {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .table-row {
@@ -499,6 +493,10 @@ button {
 
   .metrics-grid,
   .secondary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .table-list-mesas {
     grid-template-columns: 1fr;
   }
 
