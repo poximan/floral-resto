@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">Logo del restaurante</title>
+  <rect width="160" height="160" rx="40" fill="#2b1a11"/>
+  <circle cx="80" cy="80" r="54" fill="#fff1df"/>
+  <path d="M52 92c18 15 38 15 56 0" fill="none" stroke="#2b1a11" stroke-width="8" stroke-linecap="round"/>
+  <path d="M57 66c16-20 46-20 62 0" fill="none" stroke="#db6e45" stroke-width="8" stroke-linecap="round"/>
+  <path d="M80 45v59" fill="none" stroke="#2b1a11" stroke-width="7" stroke-linecap="round"/>
+</svg>

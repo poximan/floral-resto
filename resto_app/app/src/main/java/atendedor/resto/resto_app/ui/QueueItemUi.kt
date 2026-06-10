@@ -4,7 +4,7 @@ data class QueueItemUi(
     val queueType: String,
     val itemId: Long,
     val status: String,
-    val mesaNumero: Int,
+    val mesaNumero: String,
     val createdAt: String,
     val closedAt: String?,
     val actorReference: String?,

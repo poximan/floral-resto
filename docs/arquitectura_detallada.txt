@@ -2,7 +2,7 @@ ARQUITECTURA DETALLADA DEL ECOSISTEMA FLORAL-RESTO
 
 1. Objetivo general
 Disenar un ecosistema compuesto por:
-- un server web desplegado en la LAN del comercio, con exposicion publica solo para clientes mediante Cloudflare Tunnel
+- un server web desplegado en la LAN del comercio, con exposicion publica mediante Cloudflare Tunnel sobre `/carta` y `/gestion`
 - una app movil Android de consulta para el encargado, conectada exclusivamente por MQTT
 
 El sistema debe atender tres actores:
@@ -53,7 +53,7 @@ Responsabilidad dominante:
 
 Responsabilidades concretas:
 - exponer APIs HTTP para cliente de mesa, mozo y encargado
-- gestionar sesiones web autenticadas de mozo y encargado
+- gestionar sesiones web autenticadas de mozo y encargado mediante cookie HttpOnly emitida por el gateway
 - gestionar apertura de sesion anonima de cliente de mesa
 - exponer canales WebSocket por sesion de mesa y por panel interno
 - servir assets estaticos de imagenes de menu
@@ -72,7 +72,9 @@ Responsabilidad dominante:
 - ser la fuente de verdad unica de negocio, estado y metricas
 
 Responsabilidades concretas:
-- orquestar especialistas internos de persistencia, estado de carrito, presencia de clientes y emision de eventos
+- orquestar especialistas internos de persistencia, estado de carrito, presencia de clientes, colas operativas y emision de eventos
+- componer servicios internos separados por subdominio para mesa publica, mozo, autenticacion, dashboard, catalogo, mesas y configuracion visual
+- encapsular acceso a PostgreSQL mediante una capa dedicada en `domain/src/db`, con DAOs por entidad del modelo, read-model DAOs para consultas analiticas, repositories por caso de negocio y adapters transaccionales por cliente interno
 - gestionar mesas habilitadas
 - gestionar sesiones de mesa
 - gestionar sub-sesiones anonimas de clientes dentro de la mesa
@@ -85,7 +87,7 @@ Responsabilidades concretas:
 - mantener FSM de eventos con estados `pendiente` y `atendido`
 - calcular dashboard web y dashboard movil
 - administrar CRUD de productos, categorias y mesas
-- administrar configuraciones operativas, incluida conversion visual ARS/USD
+- administrar la configuracion visual de conversion ARS/USD
 - detectar concurrencia exclusiva de roles
 - publicar eventos de dominio para WebSocket y MQTT a traves de adaptadores consumidores
 
@@ -155,7 +157,7 @@ Reglas:
 - permanece abierta hasta que el mozo la cierre explicitamente
 - si todos los clientes se desconectan, la sesion no se destruye y queda vacia con su estado operativo vigente
 - si luego alguien vuelve a entrar antes del cierre del mozo, se suma a la misma sesion abierta
-- puede contener un solo pedido confirmado
+- puede contener multiples pedidos confirmados
 - puede seguir recibiendo consultas y llamados aun despues del pedido confirmado
 - se cierra explicitamente por accion del mozo
 
@@ -176,6 +178,7 @@ Reglas:
 4.4 Lider de mesa
 Reglas:
 - se define por antiguedad de conexion dentro de la sesion activa
+- se persiste como relacion 1 a 1 explicita entre sesion y cliente lider
 - solo el lider ve el boton `confirmar pedido`
 - si el lider se desconecta, hereda el siguiente mas antiguo
 - si cualquier cliente se retira de forma confirmada y luego vuelve, entra como cliente nuevo
@@ -265,13 +268,14 @@ Mensajes logicos:
 6.2 Mozo web
 - credenciales configurables por `.env`
 - un solo mozo web activo
-- si un segundo intenta loguear, se consulta la actividad del mozo actual
-- si en 2 minutos no hubo alteraciones sobre FSM de ninguna cola, se permite reemplazo
-- si hubo actividad reciente, se rechaza el login explicando el motivo
+- la sesion web autenticada viaja en cookie HttpOnly del navegador; el frontend no persiste el token
+- si un segundo intenta loguear y las credenciales son validas, la sesion actual se reemplaza de inmediato por el nuevo login
+- no existe ventana de inactividad ni chequeo de actividad reciente para conservar la sesion del mozo actual
 
 6.3 Encargado web
 - credenciales configurables por `.env`
 - un solo encargado web activo
+- la sesion web autenticada viaja en cookie HttpOnly del navegador; el frontend no persiste el token
 - si un segundo intenta loguear, se evalua actividad de sesion web
 - si hubo inactividad por al menos 20 minutos, se permite reemplazo
 - la app Android puede forzar el cierre de la sesion web del encargado
@@ -279,7 +283,7 @@ Mensajes logicos:
 6.4 Encargado movil
 - un solo dispositivo Android activo en MQTT
 - si entra un segundo, se rechaza y se informa la causa
-- configuracion sensible en `local.properties`
+- configuracion sensible cargada desde `local.properties` e inyectada al `BuildConfig` durante el build
 
 7. Persistencia y lineamientos de base de datos
 
@@ -288,20 +292,25 @@ Tablas principales sugeridas:
 - `mesas`
 - `mesa_sesiones`
 - `mesa_clientes`
+- `mesa_sesion_lideres`
+- `mesa_carrito_items`
 - `categorias`
 - `productos`
 - `pedido_sesiones`
 - `pedido_items`
+- `pedidos_cocina`
 - `consultas_master`
 - `consultas_detail`
 - `llamados_mozo`
 - `eventos_auditoria`
-- `configuraciones_operativas`
+- `configuracion_visual`
 
 Lineamientos:
 - montos persistidos en ARS
 - timestamps persistidos en UTC
 - presentacion horaria segun zona configurada por `.env`
+- unicidad real de eventos pendientes por mesa en la base
+- carrito pendiente con referencia compuesta hacia cliente de mesa cuando tiene duenio
 - productos con baja logica
 - categorias no se eliminan si tienen productos activos asociados
 
@@ -380,7 +389,8 @@ Solapa "estado del pedido":
 11.1 Internos server
 - comunicacion por HTTP interna
 - solo `domain` toca PostgreSQL
-- `gateway` y `mqtt-publisher` consumen contratos explicitos de `domain`, incluyendo un stream interno de eventos por HTTP
+- dentro de `domain`, los servicios de negocio no deben contener SQL embebido ni consumir DAOs directamente; deben operar contra repositories, que componen DAOs por entidad y read-models
+- `gateway` y `mqtt-publisher` consumen contratos explicitos de `domain`, incluyendo un stream interno SSE por HTTP
 
 11.2 Hacia web
 - HTTP para comandos y lecturas puntuales

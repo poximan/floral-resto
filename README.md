@@ -50,6 +50,23 @@ La app vive en `resto_app` y se conecta exclusivamente por MQTT a HiveMQ Cloud. 
 
 PostgreSQL se maneja con snapshot unico de esquema. Si cambia el modelo, la instancia debe recrearse desde cero; no se contemplan migraciones adaptativas en runtime.
 
+Cuando el codigo cambia el esquema, el volumen persistente anterior no se modifica solo. Para aplicar el esquema real definido en `resto_server/postgres/init/001_schema.sql`, recrear el stack desde cero:
+
+```powershell
+cd resto_server
+docker compose down -v
+docker compose up --build
+```
+
+El `-v` elimina el volumen `postgres_data`; usarlo solo cuando se acepta descartar la base local actual. Este proyecto no debe resolver cambios de modelo con `ALTER TABLE`.
+
+Si solo cambia nginx o algun frontend web, reconstruir al menos `reverse-proxy`, porque `nginx.conf` y los bundles quedan copiados dentro de la imagen:
+
+```powershell
+cd resto_server
+docker compose up --build reverse-proxy
+```
+
 ## Documentacion util
 
 - [Arquitectura detallada](docs/arquitectura_detallada.txt)

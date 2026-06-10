@@ -17,6 +17,7 @@ import atendedor.resto.resto_app.data.mobile.RevenueFragmentModel
 import atendedor.resto.resto_app.mqtt.AndroidCloseWebSessionRequest
 import atendedor.resto.resto_app.mqtt.AndroidHistoryRequest
 import atendedor.resto.resto_app.mqtt.AndroidLoginRequest
+import atendedor.resto.resto_app.mqtt.AndroidWebEntrypointRequest
 import atendedor.resto.resto_app.mqtt.ConnectionChanged
 import atendedor.resto.resto_app.mqtt.ErrorRaised
 import atendedor.resto.resto_app.mqtt.ManagerMqttClient
@@ -27,6 +28,7 @@ import atendedor.resto.resto_app.ui.DashboardMetricUi
 import atendedor.resto.resto_app.ui.MainUiState
 import atendedor.resto.resto_app.ui.QueueItemUi
 import atendedor.resto.resto_app.ui.RevenueByTableUi
+import atendedor.resto.resto_app.ui.utils.UiError
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +63,7 @@ class ManagerMobileRepository(
         context,
         MobileCacheDatabase::class.java,
         "resto_mobile_cache.db",
-    ).fallbackToDestructiveMigration().build()
+    ).fallbackToDestructiveMigration(true).build()
     private val dao = database.mobileCacheDao()
     private val topics = MqttTopicsFactory.fromConfig(config)
     private val mqttClient = ManagerMqttClient(config, topics)
@@ -74,6 +76,7 @@ class ManagerMobileRepository(
     private var managerAuthenticated = false
     private var activeScopeKey: String? = null
     private var currentSyncScopeKey: String? = null
+    private var webEntrypointRequested = false
 
     val uiState: StateFlow<MainUiState> = mutableUiState.asStateFlow()
 
@@ -83,17 +86,25 @@ class ManagerMobileRepository(
                 try {
                     handleMqttEvent(event)
                 } catch (_: Exception) {
-                    emitState(errorMessage = context.getString(R.string.error_invalid_payload))
+                    emitState(errorMessage = UiError.Resource(R.string.error_invalid_payload))
                 }
             }
         }
     }
 
     fun start() {
+        webEntrypointRequested = false
         mqttClient.connect()
+
+        if (brokerOnline && managerAuthenticated) {
+            scope.launch {
+                requestWebEntrypointOnce()
+            }
+        }
     }
 
     fun stop() {
+        webEntrypointRequested = false
         mqttClient.disconnect()
     }
 
@@ -191,6 +202,7 @@ class ManagerMobileRepository(
     private suspend fun handleIncomingPayload(topic: String, payload: String) {
         when {
             topics.isLoginResponseTopic(topic) -> handleLoginResponse(payload)
+            topics.isSystemWebEntrypointTopic(topic) -> handleWebEntrypointPayload(payload)
             topics.isCurrentDashboardMetricsTopic(topic) -> handleCurrentMetricsPayload(payload)
             topics.isCurrentDashboardRevenueTopic(topic) -> handleCurrentRevenuePayload(payload)
             topics.isCurrentQueueTopic(topic) -> handleCurrentQueuePayload(payload)
@@ -205,11 +217,11 @@ class ManagerMobileRepository(
         if (!accepted) {
             managerAuthenticated = false
             currentSyncScopeKey = null
+            val reason = MobileJsonParser.parseInfoMessage(payload)
             emitState(
                 managerAuthenticated = false,
                 syncInProgress = hasPendingSync(),
-                errorMessage = MobileJsonParser.parseInfoMessage(payload)
-                    ?: context.getString(R.string.error_login_rejected),
+                errorMessage = if (reason != null) UiError.Message(reason) else UiError.Resource(R.string.error_login_rejected),
             )
             return
         }
@@ -237,6 +249,34 @@ class ManagerMobileRepository(
             syncInProgress = true,
             statusMessage = context.getString(R.string.status_mobile_authenticated_message),
             errorMessage = null,
+        )
+        requestWebEntrypointOnce()
+    }
+
+    private suspend fun requestWebEntrypointOnce() {
+        if (webEntrypointRequested) {
+            return
+        }
+
+        webEntrypointRequested = publishWebEntrypointRequest()
+    }
+
+    private suspend fun handleWebEntrypointPayload(payload: String) {
+        val nextPublicManagementUrl = MobileJsonParser.parsePublicManagementUrl(payload)
+        val serverMessage = MobileJsonParser.parseInfoMessage(payload)
+
+        emitState(
+            publicManagementUrl = nextPublicManagementUrl ?: mutableUiState.value.publicManagementUrl,
+            statusMessage = if (nextPublicManagementUrl != null) {
+                context.getString(R.string.status_web_entrypoint_updated)
+            } else {
+                mutableUiState.value.statusMessage
+            },
+            errorMessage = if (nextPublicManagementUrl != null) {
+                null
+            } else {
+                serverMessage?.let { UiError.Message(it) }
+            },
         )
     }
 
@@ -318,7 +358,7 @@ class ManagerMobileRepository(
                 if (complete.error != null) {
                     emitState(
                         syncInProgress = hasPendingSync(),
-                        errorMessage = complete.error,
+                        errorMessage = UiError.Message(complete.error),
                     )
                     return
                 }
@@ -327,7 +367,7 @@ class ManagerMobileRepository(
                 if (!dataset.complete) {
                     emitState(
                         syncInProgress = hasPendingSync(),
-                        errorMessage = context.getString(R.string.error_history_incomplete),
+                        errorMessage = UiError.Resource(R.string.error_history_incomplete),
                     )
                     return
                 }
@@ -350,11 +390,12 @@ class ManagerMobileRepository(
                 errorMessage = null,
             )
 
-            "manager_web_session_close_rejected" -> emitState(
-                errorMessage = json.optString("error").ifBlank {
-                    context.getString(R.string.error_close_web_rejected)
-                }
-            )
+            "manager_web_session_close_rejected" -> {
+                val error = json.optString("error")
+                emitState(
+                    errorMessage = if (error.isNotBlank()) UiError.Message(error) else UiError.Resource(R.string.error_close_web_rejected)
+                )
+            }
         }
     }
 
@@ -410,6 +451,25 @@ class ManagerMobileRepository(
             )
         } catch (error: Exception) {
             emitState(errorMessage = resolveClientMessage(error.message))
+        }
+    }
+
+    private suspend fun publishWebEntrypointRequest(): Boolean {
+        return try {
+            mqttClient.publish(
+                topics.webEntrypointRequest,
+                JSONObject(
+                    AndroidWebEntrypointRequest(
+                        requestId = UUID.randomUUID().toString(),
+                        deviceId = config.deviceId,
+                    ).toMap()
+                ).toString()
+            )
+            emitState(statusMessage = context.getString(R.string.status_web_entrypoint_request_sent))
+            true
+        } catch (error: Exception) {
+            emitState(errorMessage = resolveClientMessage(error.message))
+            false
         }
     }
 
@@ -515,15 +575,15 @@ class ManagerMobileRepository(
                     scopeKey = fragment.range.scopeKey,
                     queueType = it.queueType,
                     itemId = it.itemId,
-                    status = it.status,
+                    status = it.effectiveStatus,
                     mesaNumero = it.mesaNumero,
                     mesaSesionId = it.mesaSesionId,
                     createdAt = it.createdAt,
-                    closedAt = it.closedAt,
-                    actorReference = it.actorReference,
-                    summary = it.summary,
+                    closedAt = it.effectiveClosedAt,
+                    actorReference = it.effectiveActorReference,
+                    summary = it.resumen,
                     totalArsCentavos = it.totalArsCentavos,
-                    detailJson = it.detailJson,
+                    detailJson = it.detail?.toString() ?: "{}",
                 )
             }
         )
@@ -644,8 +704,9 @@ class ManagerMobileRepository(
         managerAuthenticated: Boolean = this.managerAuthenticated,
         activeScopeLabel: String = mutableUiState.value.activeScopeLabel,
         lastSyncAt: String? = mutableUiState.value.lastSyncAt,
+        publicManagementUrl: String? = mutableUiState.value.publicManagementUrl,
         statusMessage: String? = mutableUiState.value.statusMessage,
-        errorMessage: String? = mutableUiState.value.errorMessage,
+        errorMessage: UiError? = mutableUiState.value.errorMessage,
         dashboardMetrics: List<DashboardMetricUi> = mutableUiState.value.dashboardMetrics,
         revenueByTable: List<RevenueByTableUi> = mutableUiState.value.revenueByTable,
         pendingItems: List<QueueItemUi> = mutableUiState.value.pendingItems,
@@ -659,6 +720,7 @@ class ManagerMobileRepository(
             managerAuthenticated = managerAuthenticated,
             activeScopeLabel = activeScopeLabel,
             lastSyncAt = lastSyncAt,
+            publicManagementUrl = publicManagementUrl,
             statusMessage = statusMessage,
             errorMessage = errorMessage,
             dashboardMetrics = dashboardMetrics,
@@ -686,15 +748,16 @@ class ManagerMobileRepository(
         }
     }
 
-    private fun resolveClientMessage(message: String?): String? {
-        return when (message) {
-            "mqtt_not_connected" -> context.getString(R.string.error_mqtt_not_connected)
-            "mqtt_connection_lost" -> context.getString(R.string.error_mqtt_connection_lost)
-            "mqtt_connect_failed" -> context.getString(R.string.error_mqtt_connect_failed)
-            "mqtt_subscribe_failed" -> context.getString(R.string.error_mqtt_subscribe_failed)
-            "mqtt_publish_failed" -> context.getString(R.string.error_mqtt_publish_failed)
-            else -> message
+    private fun resolveClientMessage(message: String?): UiError? {
+        val resId = when (message) {
+            "mqtt_not_connected" -> R.string.error_mqtt_not_connected
+            "mqtt_connection_lost" -> R.string.error_mqtt_connection_lost
+            "mqtt_connect_failed" -> R.string.error_mqtt_connect_failed
+            "mqtt_subscribe_failed" -> R.string.error_mqtt_subscribe_failed
+            "mqtt_publish_failed" -> R.string.error_mqtt_publish_failed
+            else -> return message?.let { UiError.Message(it) }
         }
+        return UiError.Resource(resId)
     }
 }
 
@@ -717,6 +780,13 @@ private fun AndroidHistoryRequest.toMap(): Map<String, String> {
 }
 
 private fun AndroidCloseWebSessionRequest.toMap(): Map<String, String> {
+    return mapOf(
+        "requestId" to requestId,
+        "deviceId" to deviceId,
+    )
+}
+
+private fun AndroidWebEntrypointRequest.toMap(): Map<String, String> {
     return mapOf(
         "requestId" to requestId,
         "deviceId" to deviceId,

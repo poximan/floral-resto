@@ -161,8 +161,8 @@ Credenciales iniciales:
 Exclusividad de sesiones:
 - solo un mozo web activo
 - solo un encargado web activo
-- si entra un segundo mozo y el actual tuvo cambios de FSM en alguna cola durante los ultimos 2 minutos, rechazar login explicando el motivo
-- si no hubo actividad FSM en 2 minutos, permitir reemplazo
+- si entra un segundo mozo con credenciales validas, reemplazar de inmediato la sesion web actual del mozo
+- el rol mozo no usa ventana de inactividad para conservar la sesion existente
 - si entra un segundo encargado web y el actual tuvo actividad de sesion en los ultimos 20 minutos, rechazar
 - si el encargado web estuvo inactivo 20 minutos, permitir reemplazo
 - la app Android del encargado debe poder expulsar la sesion web del encargado por MQTT
@@ -279,7 +279,7 @@ Despliegue:
 - server en LAN
 - Cloudflare Tunnel apunta solo a `reverse-proxy`
 - acceso interno solo en LAN
-- URL publica expone solo la parte cliente
+- URL publica expone actualmente `/carta` y `/gestion`
 
 G. CRITERIOS DE IMPLEMENTACION
 - respetar arquitectura modular y fronteras claras

@@ -71,5 +71,5 @@ CRITERIO DE DISENO
 NOTA SOBRE EL PUENTE INTERNO
 
 - La reduccion adicional de polling no requiere nuevas reglas en HiveMQ Cloud.
-- El disparo fino entre `domain` y `mqtt-publisher` se resuelve internamente con eventos via PostgreSQL LISTEN/NOTIFY.
+- El disparo fino entre `domain` y `mqtt-publisher` se resuelve internamente mediante el stream SSE `GET /internal/events/stream`.
 - Para el broker MQTT, las ACL sugeridas arriba siguen siendo suficientes.

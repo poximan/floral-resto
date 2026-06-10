@@ -8,6 +8,6 @@ import androidx.room.Entity
 )
 data class RevenueByTableEntity(
     val scopeKey: String,
-    val mesaNumero: Int,
+    val mesaNumero: String,
     val totalArsCentavos: Long,
 )

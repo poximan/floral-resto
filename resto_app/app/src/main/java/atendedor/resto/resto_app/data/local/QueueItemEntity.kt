@@ -11,7 +11,7 @@ data class QueueItemEntity(
     val queueType: String,
     val itemId: Long,
     val status: String,
-    val mesaNumero: Int,
+    val mesaNumero: String,
     val mesaSesionId: Long,
     val createdAt: String,
     val closedAt: String?,

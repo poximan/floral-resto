@@ -4,8 +4,10 @@ data class MqttTopics(
     val loginRequest: String,
     val historyRequest: String,
     val closeWebSessionRequest: String,
+    val webEntrypointRequest: String,
     val loginResponse: String,
     val systemPrefix: String,
+    val systemWebEntrypointCurrent: String,
     val currentDashboardMetrics: String,
     val currentDashboardRevenue: String,
     val currentQueuePrefix: String,
@@ -15,6 +17,8 @@ data class MqttTopics(
     fun isLoginResponseTopic(topic: String): Boolean = topic == loginResponse
 
     fun isSystemTopic(topic: String): Boolean = topic.startsWith(systemPrefix)
+
+    fun isSystemWebEntrypointTopic(topic: String): Boolean = topic == systemWebEntrypointCurrent
 
     fun isCurrentDashboardMetricsTopic(topic: String): Boolean = topic == currentDashboardMetrics
 
