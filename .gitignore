@@ -1,6 +1,6 @@
-resto_server/.env
-resto_server/.env.*
-!resto_server/.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 resto_server/postgres/data/
 resto_server/**/node_modules/

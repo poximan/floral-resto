@@ -742,6 +742,10 @@ onBeforeUnmount(() => {
           </header>
           <div class="category-body">
             <div v-for="producto in categoria.productos" :key="producto.id" class="product">
+              <div class="product-copy">
+                <h3>{{ producto.titulo }}</h3>
+                <p>{{ producto.descripcion }}</p>
+              </div>
               <div class="product-actions">
                 <strong>{{ formatMoney(producto.precioArsCentavos) }}</strong>
                 <button
@@ -769,10 +773,6 @@ onBeforeUnmount(() => {
                     Pedir
                   </button>
                 </div>
-              </div>
-              <div class="product-copy">
-                <h3>{{ producto.titulo }}</h3>
-                <p>{{ producto.descripcion }}</p>
               </div>
               <img
                 v-if="producto.imagenNombreArchivo"
