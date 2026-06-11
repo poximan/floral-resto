@@ -13,13 +13,35 @@ services:
       - "${POSTGRES_HOST_PORT}:${POSTGRES_PORT}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./postgres/config:/docker-entrypoint-initdb.d:ro
+      - ./postgres/datos:/postgres-datos:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 12
       start_period: 5s
+
+  postgres-data-loader:
+    image: postgres:16-alpine
+    container_name: restobar-postgres-data-loader
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      CSV_DATA_DIR: /postgres-datos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./postgres/config:/postgres-config:ro
+      - ./postgres/datos:/postgres-datos:ro
+    command: ["sh", "/postgres-config/002_seed_csv.sh"]
 
   domain:
     build:
@@ -29,8 +51,8 @@ services:
     env_file:
       - .env
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-data-loader:
+        condition: service_completed_successfully
 
   http-gw:
     build:
@@ -46,17 +68,25 @@ services:
     volumes:
       - ./assets:/app/assets:ro
 
-  reverse-proxy:
+  web-entrypoint:
     build:
-      context: ./reverse-proxy
+      context: ./web-entrypoint
       dockerfile: Dockerfile
-    container_name: restobar-reverse-proxy
+    container_name: restobar-web-entrypoint
     restart: unless-stopped
     depends_on:
       - http-gw
     ports:
       - "${WEB_CARTA_PORT}:80"
       - "${WEB_GESTION_PORT}:81"
+
+  edge-adapter-tunel:
+    image: nginx:1.27-alpine
+    container_name: restobar-edge-adapter-tunel
+    restart: unless-stopped
+    volumes:
+      - ./edge-adapter-tunel/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./edge-adapter-tunel/edge-unavailable.html:/usr/share/nginx/html/edge-unavailable.html:ro
 
   mqtt-client:
     build:
@@ -81,7 +111,7 @@ services:
     env_file:
       - .env
     depends_on:
-      - reverse-proxy
+      - edge-adapter-tunel
 
 volumes:
   postgres_data:

@@ -1,5 +1,5 @@
 import { createMesaPublicDbAdapter } from '../db/adapters/mesa-public-db-adapter.js';
-import { adoptOrphanCartItems, applyCartOwnershipOnConfirmedDeparture } from './mesa-cart-ownership-service.js';
+import { adoptOrphanComandaItems, applyComandaOwnershipOnConfirmedDeparture } from './mesa-comanda-ownership-service.js';
 import {
   assignLeaderIfMissing,
   buildMesaState,
@@ -16,7 +16,7 @@ import {
   publishMesaPublicRefresh,
   requireActiveMesaClientSession,
   scheduleMesaClientDisconnect,
-  syncCartWithCatalog,
+  syncComandaWithCatalog,
   touchMesaClient,
 } from './mesa-service-shared.js';
 
@@ -46,7 +46,7 @@ async function getMesaContext(
     const currentIsLeader = leaderClientSessionId === clientSessionId;
 
     const adoptedOrphanItemsCount = currentIsLeader
-      ? await adoptOrphanCartItems(repository, mesaSesion.id, clientSessionId)
+      ? await adoptOrphanComandaItems(repository, mesaSesion.id, clientSessionId)
       : 0;
 
     if (mesaSesionCreada) {
@@ -94,7 +94,7 @@ async function getMesaContext(
       await recordAuditEvent(client, {
         agregado: 'mesa_sesiones',
         agregadoId: mesaSesion.id,
-        evento: 'carrito_huerfano_heredado',
+        evento: 'comanda_huerfana_heredada',
         actorTipo: 'cliente',
         actorReferencia: clientSessionId,
         payload: {
@@ -109,7 +109,7 @@ async function getMesaContext(
         client,
         publishDomainEvent,
         adoptedOrphanItemsCount > 0
-          ? 'carrito_huerfano_heredado'
+          ? 'comanda_huerfana_heredada'
           : clientCreated
             ? 'cliente_mesa_ingresado'
             : clientReconnected
@@ -183,7 +183,7 @@ async function finalizeClientDisconnect(
     const previousLeaderClientSessionId = mesaSesion.lider_cliente_sesion_id ?? null;
     const nextLeaderClientSessionId = await assignLeaderIfMissing(repository, mesaSesion.id);
     const connectedClients = await countConnectedMesaClients(repository, mesaSesion.id);
-    const cartOwnershipResult = await applyCartOwnershipOnConfirmedDeparture(
+    const comandaOwnershipResult = await applyComandaOwnershipOnConfirmedDeparture(
       repository,
       mesaSesion.id,
       clientSessionId,
@@ -217,29 +217,29 @@ async function finalizeClientDisconnect(
       });
     }
 
-    if (cartOwnershipResult.mode === 'orphaned' && cartOwnershipResult.itemCount > 0) {
+    if (comandaOwnershipResult.mode === 'orphaned' && comandaOwnershipResult.itemCount > 0) {
       await recordAuditEvent(client, {
         agregado: 'mesa_sesiones',
         agregadoId: mesaSesion.id,
-        evento: 'carrito_pendiente_huerfano',
+        evento: 'comanda_pendiente_huerfana',
         actorTipo: 'sistema',
         actorReferencia: 'mesa_disconnect',
         payload: {
           mesaNumero: mesa.nombre,
-          cantidadItemsHuerfanos: cartOwnershipResult.itemCount,
+          cantidadItemsHuerfanos: comandaOwnershipResult.itemCount,
         },
       });
-    } else if (cartOwnershipResult.mode === 'transferred' && cartOwnershipResult.itemCount > 0) {
+    } else if (comandaOwnershipResult.mode === 'transferred' && comandaOwnershipResult.itemCount > 0) {
       await recordAuditEvent(client, {
         agregado: 'mesa_sesiones',
         agregadoId: mesaSesion.id,
-        evento: 'carrito_pendiente_reasignado',
+        evento: 'comanda_pendiente_reasignada',
         actorTipo: 'sistema',
         actorReferencia: 'mesa_disconnect',
         payload: {
           mesaNumero: mesa.nombre,
-          cantidadItemsReasignados: cartOwnershipResult.itemCount,
-          propietarioActualClienteSesionId: cartOwnershipResult.ownerClientSessionId,
+          cantidadItemsReasignados: comandaOwnershipResult.itemCount,
+          propietarioActualClienteSesionId: comandaOwnershipResult.ownerClientSessionId,
         },
       });
     }
@@ -331,14 +331,14 @@ async function connectClient(db, recordAuditEvent, publishDomainEvent, mesaNumer
 
     const leaderAfter = await assignLeaderIfMissing(repository, mesaSesion.id);
     const adoptedOrphanItemsCount = leaderAfter === clientSessionId
-      ? await adoptOrphanCartItems(repository, mesaSesion.id, clientSessionId)
+      ? await adoptOrphanComandaItems(repository, mesaSesion.id, clientSessionId)
       : 0;
 
     if (adoptedOrphanItemsCount > 0) {
       await recordAuditEvent(client, {
         agregado: 'mesa_sesiones',
         agregadoId: mesaSesion.id,
-        evento: 'carrito_huerfano_heredado',
+        evento: 'comanda_huerfana_heredada',
         actorTipo: 'cliente',
         actorReferencia: clientSessionId,
         payload: {
@@ -352,7 +352,7 @@ async function connectClient(db, recordAuditEvent, publishDomainEvent, mesaNumer
       await publishMesaPublicRefresh(
         client,
         publishDomainEvent,
-        adoptedOrphanItemsCount > 0 ? 'carrito_huerfano_heredado' : 'cliente_mesa_conectado',
+        adoptedOrphanItemsCount > 0 ? 'comanda_huerfana_heredada' : 'cliente_mesa_conectado',
         mesa.nombre,
       );
     }
@@ -371,7 +371,7 @@ async function getMenu(db, mesaNumero, clientSessionId) {
 
     await touchMesaClient(repository, mesaSesion.id, clientSessionId);
     await assignLeaderIfMissing(repository, mesaSesion.id);
-    await syncCartWithCatalog(repository, mesaSesion.id);
+    await syncComandaWithCatalog(repository, mesaSesion.id);
     const rows = await getMenuRows(repository, mesaSesion.id);
 
     return {

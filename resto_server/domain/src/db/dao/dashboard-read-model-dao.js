@@ -99,24 +99,24 @@ export function bindDashboardReadModelDao(client) {
               AND lm.creada_en < r.fin_utc
           ),
           dinero_jornada AS (
-            SELECT COALESCE(SUM(ps.total_ars_centavos), 0) AS total
-            FROM pedido_sesiones ps
+            SELECT COALESCE(SUM(cs.total_ars_centavos), 0) AS total
+            FROM comanda_sesiones cs
             CROSS JOIN rango r
-            WHERE ps.cobrado_en >= r.inicio_utc
-              AND ps.cobrado_en < r.fin_utc
+            WHERE cs.cobrado_en >= r.inicio_utc
+              AND cs.cobrado_en < r.fin_utc
           ),
           dinero_por_mesa AS (
             SELECT
               m.nombre AS mesa_numero,
-              COALESCE(SUM(ps.total_ars_centavos), 0) AS total_ars_centavos
-            FROM pedido_sesiones ps
+              COALESCE(SUM(cs.total_ars_centavos), 0) AS total_ars_centavos
+            FROM comanda_sesiones cs
             JOIN mesa_sesiones ms
-              ON ms.id = ps.mesa_sesion_id
+              ON ms.id = cs.mesa_sesion_id
             JOIN mesas m
               ON m.id = ms.mesa_id
             CROSS JOIN rango r
-            WHERE ps.cobrado_en >= r.inicio_utc
-              AND ps.cobrado_en < r.fin_utc
+            WHERE cs.cobrado_en >= r.inicio_utc
+              AND cs.cobrado_en < r.fin_utc
             GROUP BY m.nombre
             ORDER BY m.nombre ASC
           )
@@ -205,35 +205,35 @@ export function bindDashboardReadModelDao(client) {
             pk.atendida_por,
             ms.id AS mesa_sesion_id,
             m.nombre AS mesa_numero,
-            ps.total_ars_centavos,
+            cs.total_ars_centavos,
             COALESCE(
               (
                 SELECT JSON_AGG(
                   JSON_BUILD_OBJECT(
-                    'titulo', pi.titulo_snapshot,
-                    'descripcion', pi.descripcion_snapshot,
-                    'precioArsCentavos', pi.precio_ars_centavos_snapshot,
-                    'cantidad', pi.cantidad,
-                    'clienteSesionId', pi.cliente_sesion_id,
+                    'titulo', ci.titulo_snapshot,
+                    'descripcion', ci.descripcion_snapshot,
+                    'precioArsCentavos', ci.precio_ars_centavos_snapshot,
+                    'cantidad', ci.cantidad,
+                    'clienteSesionId', ci.cliente_sesion_id,
                     'clienteNombre', mc.cliente_nombre
                   )
-                  ORDER BY pi.titulo_snapshot ASC, pi.cliente_sesion_id ASC
+                  ORDER BY ci.titulo_snapshot ASC, ci.cliente_sesion_id ASC
                 )
-                FROM pedido_items pi
-                JOIN pedido_sesiones detalle_ps
-                  ON detalle_ps.id = pi.pedido_sesion_id
+                FROM comanda_items ci
+                JOIN comanda_sesiones detalle_cs
+                  ON detalle_cs.id = ci.comanda_sesion_id
                 LEFT JOIN mesa_clientes mc
-                  ON mc.mesa_sesion_id = detalle_ps.mesa_sesion_id
-                 AND mc.cliente_sesion_id = pi.cliente_sesion_id
-                WHERE pi.pedido_sesion_id = ps.id
+                  ON mc.mesa_sesion_id = detalle_cs.mesa_sesion_id
+                 AND mc.cliente_sesion_id = ci.cliente_sesion_id
+                WHERE ci.comanda_sesion_id = cs.id
               ),
               '[]'::json
             ) AS detalle_items
           FROM pedidos_cocina pk
-          JOIN pedido_sesiones ps
-            ON ps.id = pk.pedido_sesion_id
+          JOIN comanda_sesiones cs
+            ON cs.id = pk.comanda_sesion_id
           JOIN mesa_sesiones ms
-            ON ms.id = ps.mesa_sesion_id
+            ON ms.id = cs.mesa_sesion_id
           JOIN mesas m
             ON m.id = ms.mesa_id
           WHERE pk.estado = 'pendiente'
@@ -338,35 +338,35 @@ export function bindDashboardReadModelDao(client) {
             pk.atendida_por,
             ms.id AS mesa_sesion_id,
             m.nombre AS mesa_numero,
-            ps.total_ars_centavos,
+            cs.total_ars_centavos,
             COALESCE(
               (
                 SELECT JSON_AGG(
                   JSON_BUILD_OBJECT(
-                    'titulo', pi.titulo_snapshot,
-                    'descripcion', pi.descripcion_snapshot,
-                    'precioArsCentavos', pi.precio_ars_centavos_snapshot,
-                    'cantidad', pi.cantidad,
-                    'clienteSesionId', pi.cliente_sesion_id,
+                    'titulo', ci.titulo_snapshot,
+                    'descripcion', ci.descripcion_snapshot,
+                    'precioArsCentavos', ci.precio_ars_centavos_snapshot,
+                    'cantidad', ci.cantidad,
+                    'clienteSesionId', ci.cliente_sesion_id,
                     'clienteNombre', mc.cliente_nombre
                   )
-                  ORDER BY pi.titulo_snapshot ASC, pi.cliente_sesion_id ASC
+                  ORDER BY ci.titulo_snapshot ASC, ci.cliente_sesion_id ASC
                 )
-                FROM pedido_items pi
-                JOIN pedido_sesiones detalle_ps
-                  ON detalle_ps.id = pi.pedido_sesion_id
+                FROM comanda_items ci
+                JOIN comanda_sesiones detalle_cs
+                  ON detalle_cs.id = ci.comanda_sesion_id
                 LEFT JOIN mesa_clientes mc
-                  ON mc.mesa_sesion_id = detalle_ps.mesa_sesion_id
-                 AND mc.cliente_sesion_id = pi.cliente_sesion_id
-                WHERE pi.pedido_sesion_id = ps.id
+                  ON mc.mesa_sesion_id = detalle_cs.mesa_sesion_id
+                 AND mc.cliente_sesion_id = ci.cliente_sesion_id
+                WHERE ci.comanda_sesion_id = cs.id
               ),
               '[]'::json
             ) AS detalle_items
           FROM pedidos_cocina pk
-          JOIN pedido_sesiones ps
-            ON ps.id = pk.pedido_sesion_id
+          JOIN comanda_sesiones cs
+            ON cs.id = pk.comanda_sesion_id
           JOIN mesa_sesiones ms
-            ON ms.id = ps.mesa_sesion_id
+            ON ms.id = cs.mesa_sesion_id
           JOIN mesas m
             ON m.id = ms.mesa_id
           WHERE pk.creada_en >= $1

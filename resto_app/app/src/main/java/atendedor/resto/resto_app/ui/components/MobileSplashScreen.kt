@@ -25,7 +25,7 @@ fun MobileSplashScreen() {
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(id = R.drawable.mobile_splash_logo),
+            painter = painterResource(id = R.drawable.resto_icon),
             contentDescription = stringResource(id = R.string.splash_logo_description),
             modifier = Modifier.size(132.dp),
         )

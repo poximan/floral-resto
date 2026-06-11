@@ -1,0 +1,22 @@
+categoria_titulo,titulo,orden,activa
+bebida,agua,1,true
+bebida,gaseosa,2,true
+bebida,jugo,3,true
+bebida,licuado,4,true
+bebida,infusion,5,true
+bebida,vino y espumante,6,true
+bebida,cerveza,7,true
+bebida,destilado,8,true
+bebida,coctel,9,true
+bebida,licor,10,true
+entrada,frias,1,true
+entrada,calientes,2,true
+plato principal,carnes rojas,1,true
+plato principal,pollo,2,true
+plato principal,pescado,3,true
+plato principal,pastas,4,true
+plato principal,cazuelas,5,true
+plato principal,vegetariano,6,true
+postre,helados,1,true
+postre,refrigerados,2,true
+postre,tibios,3,true

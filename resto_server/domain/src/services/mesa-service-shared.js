@@ -7,9 +7,11 @@ export const pendingDisconnectTimers = new Map();
 export function mapMenuRowsToCategories(rows) {
   const categories = [];
   const byCategoryId = new Map();
+  const bySubcategoryId = new Map();
 
   for (const row of rows) {
     const categoryId = Number(row.categoria_id);
+    const subcategoryId = Number(row.subcategoria_id);
     const productId = Number(row.producto_id);
 
     if (!byCategoryId.has(categoryId)) {
@@ -17,13 +19,24 @@ export function mapMenuRowsToCategories(rows) {
         id: categoryId,
         titulo: row.categoria_titulo,
         orden: Number(row.categoria_orden),
-        productos: [],
+        subcategorias: [],
       };
       byCategoryId.set(categoryId, category);
       categories.push(category);
     }
 
-    byCategoryId.get(categoryId).productos.push({
+    if (!bySubcategoryId.has(subcategoryId)) {
+      const subcategory = {
+        id: subcategoryId,
+        titulo: row.subcategoria_titulo,
+        orden: Number(row.subcategoria_orden),
+        productos: [],
+      };
+      bySubcategoryId.set(subcategoryId, subcategory);
+      byCategoryId.get(categoryId).subcategorias.push(subcategory);
+    }
+
+    bySubcategoryId.get(subcategoryId).productos.push({
       id: productId,
       titulo: row.producto_titulo,
       descripcion: row.producto_descripcion,
@@ -202,8 +215,8 @@ export async function requireActiveMesaClientSession(repository, mesaNumero, cli
   return { mesa, mesaSesion, mesaCliente };
 }
 
-export async function syncCartWithCatalog(repository, mesaSesionId) {
-  const deletedRows = await repository.syncCartWithCatalog(mesaSesionId);
+export async function syncComandaWithCatalog(repository, mesaSesionId) {
+  const deletedRows = await repository.syncComandaWithCatalog(mesaSesionId);
   const deletedProducts = new Map();
 
   for (const row of deletedRows) {
@@ -228,28 +241,44 @@ export async function getPendingConsulta(repository, mesaSesionId) {
   return repository.getPendingConsulta(mesaSesionId);
 }
 
-async function getConfirmedOrdersWithItems(repository, mesaSesionId) {
-  const orders = await repository.listConfirmedOrders(mesaSesionId);
+function mapComandaItems(rows) {
+  return rows.map((row) => ({
+    productoId: Number(row.producto_id),
+    titulo: row.titulo ?? row.titulo_snapshot,
+    descripcion: row.descripcion ?? row.descripcion_snapshot,
+    precioArsCentavos: Number(row.precio_ars_centavos ?? row.precio_ars_centavos_snapshot),
+    cantidadTotal: Number(row.cantidad_total),
+    cantidadesPorCliente: row.cantidades_por_cliente ?? [],
+  }));
+}
 
-  return Promise.all(orders.map(async (order) => ({
-    id: Number(order.id),
-    numeroOrden: Number(order.numero_orden),
-    totalArsCentavos: Number(order.total_ars_centavos),
-    confirmadoEn: order.confirmado_en,
-    cobradoEn: order.cobrado_en,
-    items: (await repository.getConfirmedOrderItems(order.id)).map((row) => ({
-      productoId: Number(row.producto_id),
-      titulo: row.titulo_snapshot,
-      descripcion: row.descripcion_snapshot,
-      precioArsCentavos: Number(row.precio_ars_centavos_snapshot),
-      cantidadTotal: Number(row.cantidad_total),
-      cantidadesPorCliente: row.cantidades_por_cliente ?? [],
-    })),
-  })));
+async function getConfirmedComandasWithItems(repository, mesaSesionId, clientSessionId) {
+  const comandas = await repository.listConfirmedComandas(mesaSesionId);
+
+  return Promise.all(comandas.map(async (comanda) => {
+    const items = mapComandaItems(await repository.getConfirmedComandaItems(comanda.id));
+    const misItems = clientSessionId
+      ? mapComandaItems(await repository.getMisComandaRowsByComandaId(comanda.id, clientSessionId))
+      : [];
+
+    return {
+      id: Number(comanda.id),
+      numeroOrden: Number(comanda.numero_orden),
+      totalArsCentavos: Number(comanda.total_ars_centavos),
+      confirmadaEn: comanda.confirmada_en,
+      cobradaEn: comanda.cobrado_en,
+      items,
+      misItems,
+      miTotalArsCentavos: misItems.reduce(
+        (accumulator, item) => accumulator + (item.precioArsCentavos * item.cantidadTotal),
+        0,
+      ),
+    };
+  }));
 }
 
 export async function buildMesaState(repository, mesa, mesaSesion, clientSessionId) {
-  const productosRemovidosDelCarrito = await syncCartWithCatalog(repository, mesaSesion.id);
+  const productosRemovidosDeComanda = await syncComandaWithCatalog(repository, mesaSesion.id);
   let leaderClientSessionId = await assignLeaderIfMissing(repository, mesaSesion.id);
 
   if (!leaderClientSessionId && clientSessionId) {
@@ -257,14 +286,17 @@ export async function buildMesaState(repository, mesa, mesaSesion, clientSession
     leaderClientSessionId = await assignLeaderIfMissing(repository, mesaSesion.id);
   }
 
-  const cartRows = await repository.getCartRows(mesaSesion.id);
+  const comandaRows = await repository.getComandaRows(mesaSesion.id);
+  const misComandaRows = clientSessionId
+    ? await repository.getMisComandaRows(mesaSesion.id, clientSessionId)
+    : [];
   const currentMesaClient = clientSessionId
     ? await repository.getMesaClient(mesaSesion.id, clientSessionId)
     : null;
   const pendingCall = await repository.getPendingCall(mesaSesion.id);
   const pendingConsulta = await repository.getPendingConsulta(mesaSesion.id);
   const activeConsulta = await repository.getActiveConsultaWithMessages(mesaSesion.id);
-  const confirmedOrders = await getConfirmedOrdersWithItems(repository, mesaSesion.id);
+  const confirmedComandas = await getConfirmedComandasWithItems(repository, mesaSesion.id, clientSessionId);
   const visualUsdExchangeRate = await repository.getVisualUsdExchangeRate();
   const catalogoRevisionValue = await repository.getCatalogRevision();
 
@@ -274,16 +306,14 @@ export async function buildMesaState(repository, mesa, mesaSesion, clientSession
       ? String(catalogoRevisionValue)
       : null;
 
-  const items = cartRows.map((row) => ({
-    productoId: Number(row.producto_id),
-    titulo: row.titulo,
-    descripcion: row.descripcion,
-    precioArsCentavos: Number(row.precio_ars_centavos),
-    cantidadTotal: Number(row.cantidad_total),
-    cantidadesPorCliente: row.cantidades_por_cliente ?? [],
-  }));
+  const items = mapComandaItems(comandaRows);
+  const misItems = mapComandaItems(misComandaRows);
 
   const totalArsCentavos = items.reduce(
+    (accumulator, item) => accumulator + (item.precioArsCentavos * item.cantidadTotal),
+    0,
+  );
+  const miTotalArsCentavos = misItems.reduce(
     (accumulator, item) => accumulator + (item.precioArsCentavos * item.cantidadTotal),
     0,
   );
@@ -296,21 +326,29 @@ export async function buildMesaState(repository, mesa, mesaSesion, clientSession
     clientName: currentMesaClient?.cliente_nombre ?? null,
     catalogoRevision,
     isLeader: leaderClientSessionId === clientSessionId,
-    canConfirmOrder: leaderClientSessionId === clientSessionId && items.length > 0,
-    pedidoConfirmado: confirmedOrders.length > 0,
-    totalPedidosConfirmados: confirmedOrders.length,
+    canConfirmComanda: leaderClientSessionId === clientSessionId && items.length > 0,
+    comandaConfirmada: confirmedComandas.length > 0,
+    totalComandasConfirmadas: confirmedComandas.length,
     visualUsdExchangeRate,
-    productosRemovidosDelCarrito,
-    carritoPendiente: {
+    productosRemovidosDeComanda,
+    comandaActiva: {
       items,
       totalArsCentavos,
+      misItems,
+      miTotalArsCentavos,
     },
-    pedidoActual: {
-      items,
-      totalArsCentavos,
-    },
-    pedidosConfirmados: confirmedOrders,
-    pedidoConfirmadoDetalle: confirmedOrders[0] ?? null,
+    comandasMesa: confirmedComandas,
+    misComandas: confirmedComandas
+      .map((comanda) => ({
+        id: comanda.id,
+        numeroOrden: comanda.numeroOrden,
+        totalArsCentavos: comanda.miTotalArsCentavos,
+        confirmadaEn: comanda.confirmadaEn,
+        cobradaEn: comanda.cobradaEn,
+        items: comanda.misItems,
+      }))
+      .filter((comanda) => comanda.items.length > 0),
+    comandaConfirmadaDetalle: confirmedComandas[0] ?? null,
     llamadoMozoPendiente: pendingCall
       ? {
           id: Number(pendingCall.id),

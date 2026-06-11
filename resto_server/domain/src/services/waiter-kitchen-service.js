@@ -10,7 +10,7 @@ async function getKitchenOrderDetail(db, kitchenOrderId) {
       throw new DomainError(404, 'El pedido de cocina no existe');
     }
 
-    const items = await repository.listKitchenOrderItems(order.pedido_sesion_id);
+    const items = await repository.listKitchenOrderItems(order.comanda_sesion_id);
 
     return {
       id: Number(order.id),

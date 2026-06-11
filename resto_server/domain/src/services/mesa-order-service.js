@@ -10,11 +10,17 @@ import {
   publishMesaPublicRefresh,
   publishMobileCurrentRefresh,
   requireActiveMesaClientSession,
-  syncCartWithCatalog,
+  syncComandaWithCatalog,
   touchMesaClient,
 } from './mesa-service-shared.js';
 
-async function updateCartItem(
+const maxProductCounterQuantity = 15;
+
+async function ensureOpenComanda(repository, mesaSesionId) {
+  return (await repository.getOpenComanda(mesaSesionId)) ?? repository.createOpenComanda(mesaSesionId);
+}
+
+async function updateComandaItem(
   db,
   recordAuditEvent,
   publishDomainEvent,
@@ -27,7 +33,7 @@ async function updateCartItem(
     throw new DomainError(400, 'Falta productoId');
   }
   if (!['add', 'remove'].includes(action)) {
-    throw new DomainError(400, 'La accion del carrito es invalida');
+    throw new DomainError(400, 'La accion de la comanda es invalida');
   }
 
   return db.withTransaction(async ({ client, repository }) => {
@@ -40,33 +46,47 @@ async function updateCartItem(
 
     await touchMesaClient(repository, mesaSesion.id, clientSessionId);
     await assignLeaderIfMissing(repository, mesaSesion.id);
-    await syncCartWithCatalog(repository, mesaSesion.id);
+    await syncComandaWithCatalog(repository, mesaSesion.id);
 
     const product = await repository.getProduct(productoId);
     if (!product || !product.activo) {
       throw new DomainError(404, 'El producto no existe o ya no esta disponible');
     }
 
-    const existing = await repository.getOwnedCartItem(mesaSesion.id, productoId, clientSessionId);
+    const comanda = await ensureOpenComanda(repository, mesaSesion.id);
+    const existing = await repository.getOwnedComandaItem(comanda.id, productoId, clientSessionId);
 
     if (action === 'add') {
+      const currentProductQuantity = await repository.getComandaProductQuantity(comanda.id, productoId);
+      if (currentProductQuantity >= maxProductCounterQuantity) {
+        throw new DomainError(409, `El contador admite hasta ${maxProductCounterQuantity} unidades por producto`);
+      }
+
       if (!existing) {
-        await repository.insertCartItem(mesaSesion.id, productoId, clientSessionId, 1);
+        await repository.insertComandaItem(
+          comanda.id,
+          productoId,
+          clientSessionId,
+          product.titulo,
+          product.descripcion,
+          product.precio_ars_centavos,
+          1,
+        );
       } else {
-        await repository.incrementCartItem(existing.id, 1);
+        await repository.incrementComandaItem(existing.id, 1);
       }
     } else if (!existing) {
       throw new DomainError(409, 'Solo puedes descartar productos de tu propiedad en la mesa');
     } else if (Number(existing.cantidad) <= 1) {
-      await repository.deleteCartItem(existing.id);
+      await repository.deleteComandaItem(existing.id);
     } else {
-      await repository.decrementCartItem(existing.id, 1);
+      await repository.decrementComandaItem(existing.id, 1);
     }
 
     await recordAuditEvent(client, {
       agregado: 'mesa_sesiones',
       agregadoId: mesaSesion.id,
-      evento: action === 'add' ? 'carrito_item_agregado' : 'carrito_item_descartado',
+      evento: action === 'add' ? 'comanda_item_agregado' : 'comanda_item_descartado',
       actorTipo: 'cliente',
       actorReferencia: clientSessionId,
       payload: {
@@ -78,7 +98,7 @@ async function updateCartItem(
       },
     });
 
-    await publishMesaPublicRefresh(client, publishDomainEvent, `carrito_${action}`, mesa.nombre);
+    await publishMesaPublicRefresh(client, publishDomainEvent, `comanda_${action}`, mesa.nombre);
 
     const state = await buildMesaState(repository, mesa, mesaSesion, clientSessionId);
     const menuRows = await getMenuRows(repository, mesaSesion.id);
@@ -90,7 +110,7 @@ async function updateCartItem(
   });
 }
 
-async function confirmOrder(db, recordAuditEvent, publishDomainEvent, mesaNumero, clientSessionId) {
+async function confirmComanda(db, recordAuditEvent, publishDomainEvent, mesaNumero, clientSessionId) {
   return db.withTransaction(async ({ client, repository }) => {
     const { mesa, mesaSesion: unlockedMesaSesion } = await requireActiveMesaClientSession(
       repository,
@@ -103,47 +123,39 @@ async function confirmOrder(db, recordAuditEvent, publishDomainEvent, mesaNumero
       throw new DomainError(403, 'Solo el lider de la mesa puede confirmar el pedido');
     }
 
-    await syncCartWithCatalog(repository, mesaSesion.id);
+    await syncComandaWithCatalog(repository, mesaSesion.id);
 
-    const cartRows = await repository.listCartRowsForConfirmation(mesaSesion.id);
-    if (cartRows.length === 0) {
-      throw new DomainError(409, 'No se puede confirmar un pedido vacio');
+    const comanda = await repository.getOpenComanda(mesaSesion.id);
+    if (!comanda) {
+      throw new DomainError(409, 'No hay una comanda abierta para confirmar');
     }
 
-    const totalArsCentavos = cartRows.reduce(
+    const comandaRows = await repository.listComandaRowsForConfirmation(comanda.id);
+    if (comandaRows.length === 0) {
+      throw new DomainError(409, 'No se puede confirmar una comanda vacia');
+    }
+
+    const totalArsCentavos = comandaRows.reduce(
       (accumulator, row) => accumulator + (Number(row.precio_ars_centavos) * Number(row.cantidad)),
       0,
     );
-    const nextOrderNumber = await repository.getNextOrderNumber(mesaSesion.id);
-    const pedidoSesion = await repository.createPedidoSesion(mesaSesion.id, nextOrderNumber, totalArsCentavos);
+    const nextComandaNumber = await repository.getNextComandaNumber(mesaSesion.id);
+    const comandaConfirmada = await repository.confirmComanda(comanda.id, nextComandaNumber, totalArsCentavos);
 
-    for (const row of cartRows) {
-      await repository.insertPedidoItemSnapshot(
-        pedidoSesion.id,
-        row.producto_id,
-        row.cliente_sesion_id,
-        row.titulo,
-        row.descripcion,
-        row.precio_ars_centavos,
-        row.cantidad,
-      );
-    }
-
-    await repository.createKitchenOrder(pedidoSesion.id);
-    await repository.clearCart(mesaSesion.id);
+    await repository.createKitchenOrder(comandaConfirmada.id);
 
     await recordAuditEvent(client, {
-      agregado: 'pedido_sesiones',
-      agregadoId: pedidoSesion.id,
-      evento: 'pedido_confirmado',
+      agregado: 'comanda_sesiones',
+      agregadoId: comandaConfirmada.id,
+      evento: 'comanda_confirmada',
       actorTipo: 'cliente',
       actorReferencia: clientSessionId,
       payload: {
         mesaNumero: mesa.nombre,
         mesaSesionId: Number(mesaSesion.id),
-        numeroOrden: Number(pedidoSesion.numero_orden),
-        totalArsCentavos: Number(pedidoSesion.total_ars_centavos),
-        items: cartRows.map((row) => ({
+        numeroOrden: Number(comandaConfirmada.numero_orden),
+        totalArsCentavos: Number(comandaConfirmada.total_ars_centavos),
+        items: comandaRows.map((row) => ({
           productoId: Number(row.producto_id),
           titulo: row.titulo,
           cantidad: Number(row.cantidad),
@@ -155,14 +167,14 @@ async function confirmOrder(db, recordAuditEvent, publishDomainEvent, mesaNumero
     await publishMobileCurrentRefresh(
       client,
       publishDomainEvent,
-      'pedido_confirmado',
+      'comanda_confirmada',
       [
         MOBILE_CURRENT_FRAGMENT_KEYS.dashboardMetrics,
         MOBILE_CURRENT_FRAGMENT_KEYS.queuePendientePedidosCocina,
       ],
     );
 
-    await publishMesaPublicRefresh(client, publishDomainEvent, 'pedido_confirmado', mesa.nombre);
+    await publishMesaPublicRefresh(client, publishDomainEvent, 'comanda_confirmada', mesa.nombre);
 
     const state = await buildMesaState(repository, mesa, mesaSesion, clientSessionId);
     const menuRows = await getMenuRows(repository, mesaSesion.id);
@@ -170,11 +182,11 @@ async function confirmOrder(db, recordAuditEvent, publishDomainEvent, mesaNumero
     return {
       menu: mapMenuRowsToCategories(menuRows),
       state,
-      pedidoConfirmado: {
-        id: Number(pedidoSesion.id),
-        numeroOrden: Number(pedidoSesion.numero_orden),
-        totalArsCentavos: Number(pedidoSesion.total_ars_centavos),
-        confirmadoEn: pedidoSesion.confirmado_en,
+      comandaConfirmada: {
+        id: Number(comandaConfirmada.id),
+        numeroOrden: Number(comandaConfirmada.numero_orden),
+        totalArsCentavos: Number(comandaConfirmada.total_ars_centavos),
+        confirmadaEn: comandaConfirmada.confirmada_en,
       },
     };
   });
@@ -184,9 +196,9 @@ export function createMesaOrderService(pool, recordAuditEvent, publishDomainEven
   const db = createMesaPublicDbAdapter(pool);
 
   return {
-    updateCartItem: (mesaNumero, clientSessionId, productoId, action) =>
-      updateCartItem(db, recordAuditEvent, publishDomainEvent, mesaNumero, clientSessionId, productoId, action),
-    confirmOrder: (mesaNumero, clientSessionId) =>
-      confirmOrder(db, recordAuditEvent, publishDomainEvent, mesaNumero, clientSessionId),
+    updateComandaItem: (mesaNumero, clientSessionId, productoId, action) =>
+      updateComandaItem(db, recordAuditEvent, publishDomainEvent, mesaNumero, clientSessionId, productoId, action),
+    confirmComanda: (mesaNumero, clientSessionId) =>
+      confirmComanda(db, recordAuditEvent, publishDomainEvent, mesaNumero, clientSessionId),
   };
 }

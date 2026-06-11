@@ -12,8 +12,8 @@ export async function publicRoutes(app, mesaService) {
   app.get('/internal/public/bootstrap', async () => ({
     service: 'domain',
     capabilities: {
-      sharedCart: true,
-      multipleOrdersPerMesaSession: true,
+      sharedComanda: true,
+      multipleComandasPerMesaSession: true,
       visualUsdConversion: true,
       realtimeViaWebSocket: true,
     },
@@ -58,20 +58,20 @@ export async function publicRoutes(app, mesaService) {
     return mesaService.getState(mesaNumero, clientSessionId);
   });
 
-  app.post('/internal/public/mesas/:mesaNumero/cart/items', async (request) => {
+  app.post('/internal/public/mesas/:mesaNumero/comandas/items', async (request) => {
     const mesaNumero = parseMesaNumero(request.params);
     const clientSessionId = request.body?.clientSessionId ?? null;
     const productoId = Number.parseInt(request.body?.productoId, 10);
     const action = request.body?.action ?? null;
 
-    return mesaService.updateCartItem(mesaNumero, clientSessionId, productoId, action);
+    return mesaService.updateComandaItem(mesaNumero, clientSessionId, productoId, action);
   });
 
-  app.post('/internal/public/mesas/:mesaNumero/order/confirm', async (request) => {
+  app.post('/internal/public/mesas/:mesaNumero/comandas/confirm', async (request) => {
     const mesaNumero = parseMesaNumero(request.params);
     const clientSessionId = request.body?.clientSessionId ?? null;
 
-    return mesaService.confirmOrder(mesaNumero, clientSessionId);
+    return mesaService.confirmComanda(mesaNumero, clientSessionId);
   });
 
   app.post('/internal/public/mesas/:mesaNumero/waiter-call', async (request) => {

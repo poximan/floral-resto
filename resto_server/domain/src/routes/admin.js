@@ -25,6 +25,8 @@ export async function adminRoutes(app, adminService, authService) {
 
   app.get('/internal/admin/categorias', { preHandler: encargadoGuard }, async () => adminService.listCategories());
 
+  app.get('/internal/admin/subcategorias', { preHandler: encargadoGuard }, async () => adminService.listSubcategories());
+
   app.post('/internal/admin/categorias', { preHandler: encargadoGuard }, async (request, reply) => {
     const payload = await adminService.createCategory(request.body ?? {}, request.authSession.actorNombre);
     reply.code(201);

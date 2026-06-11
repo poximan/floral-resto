@@ -24,8 +24,8 @@ function mapMesa(row) {
     nombre: row.nombre,
     sesionActiva: row.sesion_activa,
     mesaSesionId: row.mesa_sesion_id ? Number(row.mesa_sesion_id) : null,
-    pedidoConfirmado: Number(row.pedidos_confirmados_count ?? 0) > 0,
-    pedidosConfirmadosCount: Number(row.pedidos_confirmados_count ?? 0),
+    comandaConfirmada: Number(row.comandas_confirmadas_count ?? 0) > 0,
+    comandasConfirmadasCount: Number(row.comandas_confirmadas_count ?? 0),
   };
 }
 
@@ -95,8 +95,8 @@ async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, a
     await repository.closePendingConsultas(mesaSesion.id, `mozo:${actor}`);
     await repository.receivePendingWaiterCalls(mesaSesion.id, actor);
     await repository.receivePendingKitchenOrders(mesaSesion.id, actor);
-    await repository.markConfirmedOrdersAsPaid(mesaSesion.id);
-    await repository.clearMesaCart(mesaSesion.id);
+    await repository.markConfirmedComandasAsPaid(mesaSesion.id);
+    await repository.clearOpenComanda(mesaSesion.id);
 
     await recordAuditEvent(client, {
       agregado: 'mesa_sesiones',
@@ -106,8 +106,8 @@ async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, a
       actorReferencia: actor,
       payload: {
         mesaNumero: mesa.nombre,
-        pedidoConfirmado: Number(mesaSesion.pedidos_confirmados_count) > 0,
-        pedidosConfirmadosCount: Number(mesaSesion.pedidos_confirmados_count),
+        comandaConfirmada: Number(mesaSesion.comandas_confirmadas_count) > 0,
+        comandasConfirmadasCount: Number(mesaSesion.comandas_confirmadas_count),
       },
     });
 
@@ -133,8 +133,8 @@ async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, a
       mesaNumero: mesa.nombre,
       mesaNombre: mesa.nombre,
       mesaSesionId: Number(mesaSesion.id),
-      pedidoConfirmado: Number(mesaSesion.pedidos_confirmados_count) > 0,
-      pedidosConfirmadosCount: Number(mesaSesion.pedidos_confirmados_count),
+      comandaConfirmada: Number(mesaSesion.comandas_confirmadas_count) > 0,
+      comandasConfirmadasCount: Number(mesaSesion.comandas_confirmadas_count),
       cerrada: true,
     };
   });

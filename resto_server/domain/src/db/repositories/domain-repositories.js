@@ -16,10 +16,11 @@ export function createAuthSessionRepository(entityDaos) {
 }
 
 export function createCatalogRepository(entityDaos) {
-  const { categorias, productos } = entityDaos;
+  const { categorias, subcategorias, productos } = entityDaos;
 
   return {
     listCategories: () => categorias.listForAdmin(),
+    listSubcategories: () => subcategorias.listForAdmin(),
     createCategory: (titulo, orden) => categorias.create(titulo, orden),
     getCategoryByIdForUpdate: (categoryId) => categorias.getByIdForUpdate(categoryId),
     getCategoryById: (categoryId) => categorias.getSummaryById(categoryId),
@@ -28,12 +29,13 @@ export function createCatalogRepository(entityDaos) {
     listActiveProductsByCategory: (categoryId) => productos.listActiveByCategory(categoryId),
     deleteCategory: (categoryId) => categorias.deleteById(categoryId),
     listProducts: () => productos.listForAdmin(),
-    createProduct: (categoriaId, titulo, descripcion, precioArsCentavos, imagenNombreArchivo) =>
-      productos.create(categoriaId, titulo, descripcion, precioArsCentavos, imagenNombreArchivo),
+    getSubcategoryById: (subcategoryId) => subcategorias.getSummaryById(subcategoryId),
+    createProduct: (subcategoriaId, titulo, descripcion, precioArsCentavos, imagenNombreArchivo) =>
+      productos.create(subcategoriaId, titulo, descripcion, precioArsCentavos, imagenNombreArchivo),
     getProductByIdForUpdate: (productId) => productos.getByIdForUpdate(productId),
     updateProduct: (
       productId,
-      categoriaId,
+      subcategoriaId,
       titulo,
       descripcion,
       precioArsCentavos,
@@ -41,7 +43,7 @@ export function createCatalogRepository(entityDaos) {
       activo,
     ) => productos.update(
       productId,
-      categoriaId,
+      subcategoriaId,
       titulo,
       descripcion,
       precioArsCentavos,
@@ -69,9 +71,8 @@ export function createMesaPublicRepository(entityDaos) {
     mesaSesiones,
     mesaClientes,
     mesaSesionLideres,
-    mesaCarritoItems,
-    pedidoSesiones,
-    pedidoItems,
+    comandaSesiones,
+    comandaItems,
     consultasMaster,
     consultasDetail,
     llamadosMozo,
@@ -105,14 +106,41 @@ export function createMesaPublicRepository(entityDaos) {
 
       await mesaSesionLideres.upsert(mesaSesionId, nextLeaderClientSessionId);
     },
-    syncCartWithCatalog: (mesaSesionId) => mesaCarritoItems.deleteInactiveCatalogItems(mesaSesionId),
+    getOpenComanda: (mesaSesionId) => comandaSesiones.getOpenByMesaSesion(mesaSesionId),
+    createOpenComanda: (mesaSesionId) => comandaSesiones.createOpen(mesaSesionId),
+    syncComandaWithCatalog: async (mesaSesionId) => {
+      const comanda = await comandaSesiones.getOpenByMesaSesion(mesaSesionId);
+      if (!comanda) {
+        return [];
+      }
+
+      return comandaItems.deleteInactiveCatalogItems(comanda.id);
+    },
     getVisualUsdExchangeRate: async () => {
       const row = await configuracionVisual.getSingleton();
       return Number.parseFloat(row?.usd_exchange_rate ?? '0');
     },
     getMenuRows: (mesaSesionId) => productos.listMenuRows(mesaSesionId),
     getCatalogRevision: () => productos.getCatalogRevision(),
-    getCartRows: (mesaSesionId) => mesaCarritoItems.listCartRows(mesaSesionId),
+    getComandaRows: async (mesaSesionId) => {
+      const comanda = await comandaSesiones.getOpenByMesaSesion(mesaSesionId);
+      if (!comanda) {
+        return [];
+      }
+
+      return comandaItems.listRows(comanda.id);
+    },
+    getMisComandaRows: async (mesaSesionId, clientSessionId) => {
+      const comanda = await comandaSesiones.getOpenByMesaSesion(mesaSesionId);
+      if (!comanda) {
+        return [];
+      }
+
+      return comandaItems.listOwnedAggregatedRows(comanda.id, clientSessionId);
+    },
+    getComandaRowsByComandaId: (comandaSesionId) => comandaItems.listRows(comandaSesionId),
+    getMisComandaRowsByComandaId: (comandaSesionId, clientSessionId) =>
+      comandaItems.listOwnedAggregatedRows(comandaSesionId, clientSessionId),
     getPendingCall: (mesaSesionId) => llamadosMozo.getPendingByMesaSesion(mesaSesionId),
     getPendingConsulta: (mesaSesionId) => consultasMaster.getPendingByMesaSesion(mesaSesionId),
     getActiveConsultaWithMessages: async (mesaSesionId) => {
@@ -136,53 +164,47 @@ export function createMesaPublicRepository(entityDaos) {
         })),
       };
     },
-    listConfirmedOrders: (mesaSesionId) => pedidoSesiones.listConfirmedByMesaSesion(mesaSesionId),
-    getConfirmedOrderItems: (pedidoSesionId) => pedidoItems.listAggregatedByPedidoSesion(pedidoSesionId),
+    listConfirmedComandas: (mesaSesionId) => comandaSesiones.listConfirmedByMesaSesion(mesaSesionId),
+    getConfirmedComandaItems: (comandaSesionId) => comandaItems.listAggregatedByComandaSesion(comandaSesionId),
     getProduct: (productoId) => productos.getBasicById(productoId),
-    getOwnedCartItem: (mesaSesionId, productoId, clientSessionId) =>
-      mesaCarritoItems.getOwnedItem(mesaSesionId, productoId, clientSessionId),
-    insertCartItem: (mesaSesionId, productoId, clientSessionId, cantidad = 1) =>
-      mesaCarritoItems.insertItem(mesaSesionId, productoId, clientSessionId, cantidad),
-    incrementCartItem: (itemId, amount = 1) => mesaCarritoItems.incrementItem(itemId, amount),
-    decrementCartItem: (itemId, amount = 1) => mesaCarritoItems.decrementItem(itemId, amount),
-    deleteCartItem: (itemId) => mesaCarritoItems.deleteById(itemId),
-    getNextOrderNumber: (mesaSesionId) => pedidoSesiones.getNextOrderNumber(mesaSesionId),
-    listCartRowsForConfirmation: (mesaSesionId) => mesaCarritoItems.listRowsForConfirmation(mesaSesionId),
-    createPedidoSesion: (mesaSesionId, numeroOrden, totalArsCentavos) =>
-      pedidoSesiones.create(mesaSesionId, numeroOrden, totalArsCentavos),
-    insertPedidoItemSnapshot: (
-      pedidoSesionId,
-      productoId,
-      clienteSesionId,
-      titulo,
-      descripcion,
-      precioArsCentavos,
-      cantidad,
-    ) => pedidoItems.createSnapshot(
-      pedidoSesionId,
-      productoId,
-      clienteSesionId,
-      titulo,
-      descripcion,
-      precioArsCentavos,
-      cantidad,
-    ),
-    createKitchenOrder: (pedidoSesionId) => pedidosCocina.createPending(pedidoSesionId),
-    clearCart: (mesaSesionId) => mesaCarritoItems.clearByMesaSesion(mesaSesionId),
+    getOwnedComandaItem: (comandaSesionId, productoId, clientSessionId) =>
+      comandaItems.getOwnedItem(comandaSesionId, productoId, clientSessionId),
+    getComandaProductQuantity: (comandaSesionId, productoId) => comandaItems.getProductQuantity(comandaSesionId, productoId),
+    insertComandaItem: (comandaSesionId, productoId, clientSessionId, titulo, descripcion, precioArsCentavos, cantidad = 1) =>
+      comandaItems.insertItem(comandaSesionId, productoId, clientSessionId, titulo, descripcion, precioArsCentavos, cantidad),
+    incrementComandaItem: (itemId, amount = 1) => comandaItems.incrementItem(itemId, amount),
+    decrementComandaItem: (itemId, amount = 1) => comandaItems.decrementItem(itemId, amount),
+    deleteComandaItem: (itemId) => comandaItems.deleteById(itemId),
+    getNextComandaNumber: (mesaSesionId) => comandaSesiones.getNextComandaNumber(mesaSesionId),
+    listComandaRowsForConfirmation: (comandaSesionId) => comandaItems.listRowsForConfirmation(comandaSesionId),
+    confirmComanda: (comandaSesionId, numeroOrden, totalArsCentavos) =>
+      comandaSesiones.confirmOpen(comandaSesionId, numeroOrden, totalArsCentavos),
+    createKitchenOrder: (comandaSesionId) => pedidosCocina.createPending(comandaSesionId),
+    clearOpenComanda: (mesaSesionId) => comandaSesiones.clearOpenByMesaSesion(mesaSesionId),
     createWaiterCall: (mesaSesionId, clientSessionId) => llamadosMozo.createPending(mesaSesionId, clientSessionId),
     createConsulta: (mesaSesionId, clientSessionId) => consultasMaster.createPending(mesaSesionId, clientSessionId),
     insertConsultaMessage: (consultaId, autorTipo, autorReferencia, contenido) =>
       consultasDetail.insertMessage(consultaId, autorTipo, autorReferencia, contenido),
     closeConsulta: (consultaId, cerradoPor) => consultasMaster.close(consultaId, cerradoPor),
     listPendingDisconnects: () => mesaClientes.listPendingDisconnects(),
-    listOwnedCartRows: (mesaSesionId, clientSessionId) =>
-      mesaCarritoItems.listOwnedRows(mesaSesionId, clientSessionId),
-    listOrphanCartRows: (mesaSesionId) => mesaCarritoItems.listOrphanRows(mesaSesionId),
-    getCartItemByOwner: (mesaSesionId, productoId, clientSessionId) =>
-      mesaCarritoItems.getOwnedItem(mesaSesionId, productoId, clientSessionId),
-    reassignCartItemOwner: (itemId, targetClientSessionId) =>
-      mesaCarritoItems.reassignOwner(itemId, targetClientSessionId),
-    orphanMesaCartItems: (mesaSesionId) => mesaCarritoItems.orphanByMesaSesion(mesaSesionId),
+    listOwnedComandaRows: async (mesaSesionId, clientSessionId) => {
+      const comanda = await comandaSesiones.getOpenByMesaSesion(mesaSesionId);
+      return comanda ? comandaItems.listOwnedRows(comanda.id, clientSessionId) : [];
+    },
+    listOrphanComandaRows: async (mesaSesionId) => {
+      const comanda = await comandaSesiones.getOpenByMesaSesion(mesaSesionId);
+      return comanda ? comandaItems.listOrphanRows(comanda.id) : [];
+    },
+    getComandaItemByOwner: async (mesaSesionId, productoId, clientSessionId) => {
+      const comanda = await comandaSesiones.getOpenByMesaSesion(mesaSesionId);
+      return comanda ? comandaItems.getOwnedItem(comanda.id, productoId, clientSessionId) : null;
+    },
+    reassignComandaItemOwner: (itemId, targetClientSessionId) =>
+      comandaItems.reassignOwner(itemId, targetClientSessionId),
+    orphanMesaComandaItems: async (mesaSesionId) => {
+      const comanda = await comandaSesiones.getOpenByMesaSesion(mesaSesionId);
+      return comanda ? comandaItems.orphanByComandaSesion(comanda.id) : [];
+    },
   };
 }
 
@@ -191,8 +213,7 @@ export function createMesaAdminRepository(entityDaos) {
     mesas,
     mesaSesiones,
     mesaClientes,
-    mesaCarritoItems,
-    pedidoSesiones,
+    comandaSesiones,
     consultasMaster,
     llamadosMozo,
     pedidosCocina,
@@ -213,8 +234,8 @@ export function createMesaAdminRepository(entityDaos) {
       llamadosMozo.receivePendingByMesaSesion(mesaSesionId, actorNombre),
     receivePendingKitchenOrders: (mesaSesionId, actorNombre) =>
       pedidosCocina.receivePendingByMesaSesion(mesaSesionId, actorNombre),
-    markConfirmedOrdersAsPaid: (mesaSesionId) => pedidoSesiones.markConfirmedOrdersAsPaid(mesaSesionId),
-    clearMesaCart: (mesaSesionId) => mesaCarritoItems.clearByMesaSesion(mesaSesionId),
+    markConfirmedComandasAsPaid: (mesaSesionId) => comandaSesiones.markConfirmedComandasAsPaid(mesaSesionId),
+    clearOpenComanda: (mesaSesionId) => comandaSesiones.clearOpenByMesaSesion(mesaSesionId),
   };
 }
 
@@ -223,7 +244,7 @@ export function createWaiterRepository(entityDaos) {
     consultasMaster,
     consultasDetail,
     pedidosCocina,
-    pedidoItems,
+    comandaItems,
     llamadosMozo,
   } = entityDaos;
 
@@ -237,7 +258,7 @@ export function createWaiterRepository(entityDaos) {
       consultasDetail.insertMessage(consultaId, autorTipo, autorReferencia, contenido),
     closeConsulta: (consultaId, cerradoPor) => consultasMaster.close(consultaId, cerradoPor),
     getKitchenOrder: (kitchenOrderId) => pedidosCocina.getWithContext(kitchenOrderId),
-    listKitchenOrderItems: (pedidoSesionId) => pedidoItems.listKitchenItems(pedidoSesionId),
+    listKitchenOrderItems: (comandaSesionId) => comandaItems.listKitchenItems(comandaSesionId),
     receiveKitchenOrder: (kitchenOrderId, actorNombre) =>
       pedidosCocina.receiveById(kitchenOrderId, actorNombre),
     getWaiterCall: (waiterCallId) => llamadosMozo.getWithContext(waiterCallId),

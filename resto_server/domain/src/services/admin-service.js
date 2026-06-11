@@ -11,6 +11,7 @@ export function createAdminService(pool, config, recordAuditEvent, publishDomain
 
   return {
     listCategories: () => catalogAdminService.listCategories(),
+    listSubcategories: () => catalogAdminService.listSubcategories(),
     createCategory: (payload, actorNombre) => catalogAdminService.createCategory(payload, actorNombre),
     updateCategory: (categoryId, payload, actorNombre) => catalogAdminService.updateCategory(categoryId, payload, actorNombre),
     deleteCategory: (categoryId, actorNombre) => catalogAdminService.deleteCategory(categoryId, actorNombre),

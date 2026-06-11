@@ -53,9 +53,11 @@ La web cliente debe tener dos solapas:
 - `estado del pedido`
 
 En `menu`:
-- los productos se muestran agrupados por categoria
+- los productos se muestran agrupados por categoria y subcategoria
 - las categorias tienen orden explicito
-- los productos dentro de una categoria van alfabeticamente por titulo
+- las categorias se pueden colapsar visualmente
+- las subcategorias tienen orden explicito dentro de cada categoria
+- los productos dentro de una subcategoria van alfabeticamente por titulo
 - cada producto muestra titulo, descripcion, precio y opcionalmente imagen
 - la imagen se sirve desde assets locales del server y en base se guarda solo el nombre de archivo
 
@@ -66,22 +68,22 @@ La dinamica de pedido por producto debe ser:
 - si se presiona `descartar`, contador -1
 - mientras contador >= 1, el contador queda entre `descartar` y `pedir`
 
-Reglas del carrito:
-- el carrito es compartido por la mesa
+Reglas de la comanda:
+- la comanda abierta es compartida por la mesa
 - cada item pendiente de confirmar tiene un unico propietario actual representado por `clienteSesionId`
-- solo el propietario actual puede quitar items de su parte del carrito
-- la autoria del carrito pendiente es transferible y no conserva historial de propietarios anteriores
-- si un cliente se retira y existe lider vigente, su parte pendiente del carrito pasa automaticamente al lider actual
-- si el cliente que se retira era el lider, el nuevo lider hereda su parte pendiente del carrito al asumir el liderazgo
-- si todos los clientes se retiran, el carrito pendiente queda huerfano hasta el proximo ingreso a la sesion
-- cuando entra un nuevo cliente a una sesion vacia y queda como lider, hereda como propio todo el carrito pendiente huerfano
+- solo el propietario actual puede quitar items de su parte de la comanda
+- la autoria de la comanda abierta es transferible y no conserva historial de propietarios anteriores
+- si un cliente se retira y existe lider vigente, su parte pendiente de la comanda pasa automaticamente al lider actual
+- si el cliente que se retira era el lider, el nuevo lider hereda su parte pendiente de la comanda al asumir el liderazgo
+- si todos los clientes se retiran, la comanda abierta queda huerfana hasta el proximo ingreso a la sesion
+- cuando entra un nuevo cliente a una sesion vacia y queda como lider, hereda como propia toda la comanda abierta huerfana
 - si refresca, recupera la misma sesion y sigue como estaba
-- al confirmar, se confirma todo el carrito
-- al confirmar, los precios se congelan en el pedido
+- al confirmar, se confirma toda la comanda
+- al confirmar, los precios quedan congelados en la comanda confirmada
 - despues de confirmar, todos los contadores vuelven a cero
-- despues de confirmar, puede volver a armarse un carrito nuevo y confirmarse otro pedido dentro de la misma sesion de mesa
-- una misma sesion de mesa puede generar n pedidos confirmados antes del cierre del mozo
-- el pedido no puede cancelarse
+- despues de confirmar, puede volver a armarse una comanda nueva dentro de la misma sesion de mesa
+- una misma sesion de mesa puede generar n comandas confirmadas antes del cierre del mozo
+- la comanda confirmada no puede cancelarse
 
 El cliente tambien puede:
 - abrir una consulta textual
@@ -92,15 +94,16 @@ Reglas adicionales:
 - solo puede haber una consulta abierta por mesa a la vez
 - una nueva consulta solo puede abrirse cuando la anterior fue cerrada
 - solo puede haber un llamado a mozo pendiente por vez
-- despues de confirmar pedido, la mesa igualmente puede seguir haciendo consultas y llamados
+- despues de confirmar comanda, la mesa igualmente puede seguir haciendo consultas y llamados
 - la conversion ARS/USD es solo visual para el cliente; internamente todo se persiste en pesos
 
 La solapa `estado del pedido` debe mostrar solo datos de su mesa:
-- carrito pendiente actual
-- pedidos ya enviados en la sesion actual
+- comanda pendiente actual
+- comandas ya enviadas en la sesion actual
+- mis consumos de la sesion de cliente actual
 - estado del llamado a mozo
 - estado de la consulta abierta
-- cantidad de pedidos confirmados enviados
+- cantidad de comandas confirmadas enviadas
 - total monetario de la mesa
 
 Si el mozo cierra la mesa:
@@ -113,12 +116,14 @@ El menu ya no debe salir de un JSON ni de archivos observados. Debe administrars
 
 CRUD exclusivos:
 - categorias: solo encargado
+- subcategorias: carga inicial por CSV
 - productos: solo encargado
 - mesas: mozo
 
 Categorias:
 - tienen orden explicito
-- cada producto pertenece a una y solo una categoria obligatoria
+- cada producto pertenece a una y solo una subcategoria obligatoria
+- cada subcategoria pertenece a una y solo una categoria obligatoria
 - una categoria no se puede borrar si tiene productos activos
 - si se intenta borrar, mostrar modal indicando los productos que bloquean la operacion
 
@@ -128,16 +133,16 @@ Productos:
 - descripcion
 - precio en ARS
 - disponible / activo
-- categoria obligatoria
+- subcategoria obligatoria
 - imagen opcional por nombre de archivo
 
 Reglas de edicion del catalogo mientras hay clientes conectados:
 - el sistema debe actualizar el menu en caliente usando WebSocket
 - no debe cortar sesion
-- si cambia el precio de un producto no confirmado, el carrito toma el precio nuevo
+- si cambia el precio de un producto no confirmado, la comanda abierta toma el precio nuevo
 - si cambia nombre o descripcion, solo refresca la visualizacion
-- si el producto se desactiva y estaba en carrito no confirmado, debe eliminarse automaticamente del carrito y mostrarse un mensaje explicito al cliente
-- si un producto ya estaba confirmado, ese pedido conserva su snapshot propio y no cambia
+- si el producto se desactiva y estaba en una comanda no confirmada, debe eliminarse automaticamente de la comanda y mostrarse un mensaje explicito al cliente
+- si un producto ya estaba confirmado, esa comanda conserva su snapshot propio y no cambia
 
 La configuracion visual ARS/USD:
 - la define el mozo en una solapa interna de configuracion
@@ -193,6 +198,7 @@ Vista encargado web:
 - dashboard
 - detalle solo lectura de pendientes y atendidos
 - CRUD de categorias
+- lectura de subcategorias para clasificar productos
 - CRUD de productos
 - selector/galeria de imagenes existentes en assets
 
@@ -257,18 +263,16 @@ F. ARQUITECTURA TECNICA REQUERIDA
 Dentro de `./resto_server` debe existir un `docker-compose` y una carpeta por servicio.
 
 Servicios propuestos:
-- `reverse-proxy`
-- `gateway`
+- `web-entrypoint`
+- `http-gw`
 - `domain`
-- `mqtt-publisher`
-- `web-carta`
-- `web-gestion`
+- `mqtt-client`
 - `postgres`
 
 Contratos:
 - entre microservicios internos: HTTP
 - solo `domain` puede hablar con PostgreSQL
-- `gateway` no persiste directo
+- `http-gw` no persiste directo
 - Android solo MQTT
 - web solo HTTP + WebSocket
 
@@ -277,7 +281,7 @@ Realtime web:
 
 Despliegue:
 - server en LAN
-- Cloudflare Tunnel apunta solo a `reverse-proxy`
+- Cloudflare Tunnel apunta solo a `edge-adapter-tunel`
 - acceso interno solo en LAN
 - URL publica expone actualmente `/carta` y `/gestion`
 

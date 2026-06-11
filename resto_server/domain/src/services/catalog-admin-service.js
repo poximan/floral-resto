@@ -9,9 +9,13 @@ function normalizeText(value) {
   return value?.trim() ?? '';
 }
 
+function normalizeCatalogText(value) {
+  return normalizeText(value).toLowerCase();
+}
+
 function normalizeOptionalText(value) {
   const trimmed = value?.trim() ?? '';
-  return trimmed === '' ? null : trimmed;
+  return trimmed === '' ? null : trimmed.toLowerCase();
 }
 
 function assertPositiveInteger(value, message) {
@@ -34,6 +38,8 @@ function mapCategory(row) {
 function mapProduct(row) {
   return {
     id: Number(row.id),
+    subcategoriaId: Number(row.subcategoria_id),
+    subcategoriaTitulo: row.subcategoria_titulo,
     categoriaId: Number(row.categoria_id),
     categoriaTitulo: row.categoria_titulo,
     titulo: row.titulo,
@@ -41,6 +47,19 @@ function mapProduct(row) {
     precioArsCentavos: Number(row.precio_ars_centavos),
     imagenNombreArchivo: row.imagen_nombre_archivo,
     activo: row.activo,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapSubcategory(row) {
+  return {
+    id: Number(row.id),
+    categoriaId: Number(row.categoria_id),
+    categoriaTitulo: row.categoria_titulo,
+    titulo: row.titulo,
+    orden: Number(row.orden),
+    activa: row.activa,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -64,8 +83,15 @@ async function listCategories(db) {
   });
 }
 
+async function listSubcategories(db) {
+  return db.withConnection(async ({ repository }) => {
+    const rows = await repository.listSubcategories();
+    return rows.map(mapSubcategory);
+  });
+}
+
 async function createCategory(db, recordAuditEvent, publishDomainEvent, payload, actorNombre) {
-  const titulo = normalizeText(payload.titulo);
+  const titulo = normalizeCatalogText(payload.titulo);
   const orden = toNumber(payload.orden);
 
   if (!titulo) {
@@ -103,7 +129,7 @@ async function updateCategory(db, recordAuditEvent, publishDomainEvent, category
       throw new DomainError(404, 'La categoria no existe');
     }
 
-    const titulo = normalizeText(payload.titulo ?? existing.titulo);
+    const titulo = normalizeCatalogText(payload.titulo ?? existing.titulo);
     const orden = payload.orden !== undefined ? toNumber(payload.orden) : Number(existing.orden);
     const activa = payload.activa !== undefined ? Boolean(payload.activa) : existing.activa;
 
@@ -177,13 +203,13 @@ async function listProducts(db) {
 }
 
 async function createProduct(db, recordAuditEvent, publishDomainEvent, payload, actorNombre) {
-  const categoriaId = toNumber(payload.categoriaId);
+  const subcategoriaId = toNumber(payload.subcategoriaId);
   const titulo = normalizeText(payload.titulo);
-  const descripcion = normalizeText(payload.descripcion);
+  const descripcion = normalizeCatalogText(payload.descripcion);
   const precioArsCentavos = toNumber(payload.precioArsCentavos);
   const imagenNombreArchivo = normalizeOptionalText(payload.imagenNombreArchivo);
 
-  assertPositiveInteger(categoriaId, 'La categoria del producto es obligatoria');
+  assertPositiveInteger(subcategoriaId, 'La subcategoria del producto es obligatoria');
   if (!titulo) {
     throw new DomainError(400, 'El titulo del producto es obligatorio');
   }
@@ -193,13 +219,13 @@ async function createProduct(db, recordAuditEvent, publishDomainEvent, payload, 
   assertPositiveInteger(precioArsCentavos, 'El precio del producto debe ser un entero positivo');
 
   return db.withTransaction(async ({ client, repository }) => {
-    const category = await repository.getCategoryById(categoriaId);
-    if (!category) {
-      throw new DomainError(404, 'La categoria elegida no existe');
+    const subcategory = await repository.getSubcategoryById(subcategoriaId);
+    if (!subcategory) {
+      throw new DomainError(404, 'La subcategoria elegida no existe');
     }
 
     const created = await repository.createProduct(
-      categoriaId,
+      subcategoriaId,
       titulo,
       descripcion,
       precioArsCentavos,
@@ -213,8 +239,10 @@ async function createProduct(db, recordAuditEvent, publishDomainEvent, payload, 
       actorTipo: 'encargado',
       actorReferencia: actorNombre ?? 'encargado',
       payload: {
-        categoriaId,
-        categoriaTitulo: category.titulo,
+        subcategoriaId,
+        subcategoriaTitulo: subcategory.titulo,
+        categoriaId: Number(subcategory.categoria_id),
+        categoriaTitulo: subcategory.categoria_titulo,
         titulo,
         precioArsCentavos,
         imagenNombreArchivo,
@@ -225,7 +253,9 @@ async function createProduct(db, recordAuditEvent, publishDomainEvent, payload, 
 
     return mapProduct({
       ...created,
-      categoria_titulo: category.titulo,
+      subcategoria_titulo: subcategory.titulo,
+      categoria_id: subcategory.categoria_id,
+      categoria_titulo: subcategory.categoria_titulo,
     });
   });
 }
@@ -239,9 +269,11 @@ async function updateProduct(db, recordAuditEvent, publishDomainEvent, productId
       throw new DomainError(404, 'El producto no existe');
     }
 
-    const categoriaId = payload.categoriaId !== undefined ? toNumber(payload.categoriaId) : Number(existing.categoria_id);
+    const subcategoriaId = payload.subcategoriaId !== undefined
+      ? toNumber(payload.subcategoriaId)
+      : Number(existing.subcategoria_id);
     const titulo = normalizeText(payload.titulo ?? existing.titulo);
-    const descripcion = normalizeText(payload.descripcion ?? existing.descripcion);
+    const descripcion = normalizeCatalogText(payload.descripcion ?? existing.descripcion);
     const precioArsCentavos = payload.precioArsCentavos !== undefined
       ? toNumber(payload.precioArsCentavos)
       : Number(existing.precio_ars_centavos);
@@ -250,7 +282,7 @@ async function updateProduct(db, recordAuditEvent, publishDomainEvent, productId
       : existing.imagen_nombre_archivo;
     const activo = payload.activo !== undefined ? Boolean(payload.activo) : existing.activo;
 
-    assertPositiveInteger(categoriaId, 'La categoria del producto es obligatoria');
+    assertPositiveInteger(subcategoriaId, 'La subcategoria del producto es obligatoria');
     if (!titulo) {
       throw new DomainError(400, 'El titulo del producto es obligatorio');
     }
@@ -259,14 +291,14 @@ async function updateProduct(db, recordAuditEvent, publishDomainEvent, productId
     }
     assertPositiveInteger(precioArsCentavos, 'El precio del producto debe ser un entero positivo');
 
-    const category = await repository.getCategoryById(categoriaId);
-    if (!category) {
-      throw new DomainError(404, 'La categoria elegida no existe');
+    const subcategory = await repository.getSubcategoryById(subcategoriaId);
+    if (!subcategory) {
+      throw new DomainError(404, 'La subcategoria elegida no existe');
     }
 
     const updated = await repository.updateProduct(
       productId,
-      categoriaId,
+      subcategoriaId,
       titulo,
       descripcion,
       precioArsCentavos,
@@ -281,8 +313,10 @@ async function updateProduct(db, recordAuditEvent, publishDomainEvent, productId
       actorTipo: 'encargado',
       actorReferencia: actorNombre ?? 'encargado',
       payload: {
-        categoriaId,
-        categoriaTitulo: category.titulo,
+        subcategoriaId,
+        subcategoriaTitulo: subcategory.titulo,
+        categoriaId: Number(subcategory.categoria_id),
+        categoriaTitulo: subcategory.categoria_titulo,
         titulo,
         precioArsCentavos,
         imagenNombreArchivo,
@@ -298,7 +332,9 @@ async function updateProduct(db, recordAuditEvent, publishDomainEvent, productId
 
     return mapProduct({
       ...updated,
-      categoria_titulo: category.titulo,
+      subcategoria_titulo: subcategory.titulo,
+      categoria_id: subcategory.categoria_id,
+      categoria_titulo: subcategory.categoria_titulo,
     });
   });
 }
@@ -313,6 +349,7 @@ export function createCatalogAdminService(pool, recordAuditEvent, publishDomainE
 
   return {
     listCategories: () => listCategories(db),
+    listSubcategories: () => listSubcategories(db),
     createCategory: (payload, actorNombre) => createCategory(db, recordAuditEvent, publishDomainEvent, payload, actorNombre),
     updateCategory: (categoryId, payload, actorNombre) => updateCategory(db, recordAuditEvent, publishDomainEvent, categoryId, payload, actorNombre),
     deleteCategory: (categoryId, actorNombre) => deleteCategory(db, recordAuditEvent, publishDomainEvent, categoryId, actorNombre),

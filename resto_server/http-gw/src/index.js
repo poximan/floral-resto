@@ -37,6 +37,8 @@ let domainEventStreamConnected = false;
 let domainEventReconnectTimer = null;
 let domainEventAbortController = null;
 const sessionCookieName = process.env.SESSION_COOKIE_NAME ?? 'restobar_web_session';
+const publicAssetsDir = path.dirname(process.env.MENU_ASSETS_DIR);
+const restaurantIconFileName = 'resto_icon.png';
 
 function buildAllowedLocalOrigins() {
   const ports = [
@@ -551,6 +553,23 @@ app.get('/assets/menu/:fileName', async (request, reply) => {
   return reply.send(createReadStream(filePath));
 });
 
+app.get('/assets/resto_icon.png', async (request, reply) => {
+  const filePath = path.join(publicAssetsDir, restaurantIconFileName);
+
+  try {
+    await access(filePath);
+  } catch {
+    reply.code(404).send({
+      error: 'El icono del restaurante no existe',
+    });
+    return reply;
+  }
+
+  reply.header('Cache-Control', 'public, max-age=300');
+  reply.type(getContentType(restaurantIconFileName));
+  return reply.send(createReadStream(filePath));
+});
+
 app.get('/api/public/bootstrap', async () => {
   const domainBootstrap = await callDomain('/internal/public/bootstrap');
   const tunnelState = await readTunnelState();
@@ -612,9 +631,9 @@ app.get('/api/public/mesas/:mesaNumero/state', async (request) =>
     },
   ));
 
-app.post('/api/public/mesas/:mesaNumero/cart/items', async (request) =>
+app.post('/api/public/mesas/:mesaNumero/comandas/items', async (request) =>
   callDomain(
-    `/internal/public/mesas/${encodePathSegment(request.params.mesaNumero)}/cart/items`,
+    `/internal/public/mesas/${encodePathSegment(request.params.mesaNumero)}/comandas/items`,
     {
       method: 'POST',
       body: JSON.stringify({
@@ -625,9 +644,9 @@ app.post('/api/public/mesas/:mesaNumero/cart/items', async (request) =>
     },
   ));
 
-app.post('/api/public/mesas/:mesaNumero/order/confirm', async (request) =>
+app.post('/api/public/mesas/:mesaNumero/comandas/confirm', async (request) =>
   callDomain(
-    `/internal/public/mesas/${encodePathSegment(request.params.mesaNumero)}/order/confirm`,
+    `/internal/public/mesas/${encodePathSegment(request.params.mesaNumero)}/comandas/confirm`,
     {
       method: 'POST',
       body: JSON.stringify({
@@ -904,6 +923,13 @@ app.get('/api/internal/assets/menu-images', async (request) => {
 app.get('/api/internal/categorias', async (request) => {
   await requireInternalSession(request, ['encargado']);
   return callDomain('/internal/admin/categorias', {
+    headers: buildDomainSessionHeaders(request),
+  });
+});
+
+app.get('/api/internal/subcategorias', async (request) => {
+  await requireInternalSession(request, ['encargado']);
+  return callDomain('/internal/admin/subcategorias', {
     headers: buildDomainSessionHeaders(request),
   });
 });

@@ -18,7 +18,7 @@ export async function bootstrapRoutes(app, config) {
       deleteRule: 'bloquear-si-tiene-productos-activos',
     },
     products: {
-      requiredFields: ['categoriaId', 'titulo', 'descripcion', 'precioArsCentavos'],
+      requiredFields: ['subcategoriaId', 'titulo', 'descripcion', 'precioArsCentavos'],
       optionalFields: ['imagenNombreArchivo'],
       sortRule: 'orden-categoria-y-luego-titulo-alfabetico',
     },
