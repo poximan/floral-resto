@@ -1,0 +1,63 @@
+services:
+  admin-dashboard:
+    build:
+      context: ./admin-dashboard
+    container_name: restobar-admin-dashboard
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      ADMIN_DASHBOARD_HOST: 0.0.0.0
+      ADMIN_DASHBOARD_PORT: 8084
+      ADMIN_DASHBOARD_USERNAME: ${ADMIN_DASHBOARD_USERNAME:-admin}
+      ADMIN_DASHBOARD_PASSWORD: ${ADMIN_DASHBOARD_PASSWORD:-supersecreta}
+      ADMIN_SYSLOG_HOST: 0.0.0.0
+      ADMIN_SYSLOG_PORT: 5514
+      ADMIN_SESSION_IDLE_CLOSE_MS: ${ADMIN_SESSION_IDLE_CLOSE_MS:-120000}
+    networks:
+      - restobar_edge
+
+  public-router:
+    image: nginx:1.27-alpine
+    container_name: restobar-public-router
+    restart: unless-stopped
+    depends_on:
+      - admin-dashboard
+    ports:
+      - "${PUBLIC_ROUTER_PORT:-8088}:80"
+    volumes:
+      - ./public-router/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./public-router/not-found-public.html:/usr/share/nginx/html/not-found-public.html:ro
+    networks:
+      - restobar_edge
+
+  edge-adapter-tunel:
+    image: nginx:1.27-alpine
+    container_name: restobar-edge-adapter-tunel
+    restart: unless-stopped
+    depends_on:
+      - public-router
+    volumes:
+      - ./edge-adapter-tunel/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./edge-adapter-tunel/edge-unavailable.html:/usr/share/nginx/html/edge-unavailable.html:ro
+    networks:
+      - restobar_edge
+
+  tunel-service:
+    build:
+      context: ./tunel-service
+    container_name: restobar-tunel-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      TUNEL_SERVICE_HOST: ${TUNEL_SERVICE_HOST:-0.0.0.0}
+      TUNEL_SERVICE_PORT: ${TUNEL_SERVICE_PORT:-8083}
+      TUNEL_TARGET_URL: ${TUNEL_TARGET_URL:-http://edge-adapter-tunel:80}
+    depends_on:
+      - edge-adapter-tunel
+    networks:
+      - restobar_edge
+
+networks:
+  restobar_edge:
+    external: true
+    name: restobar_edge

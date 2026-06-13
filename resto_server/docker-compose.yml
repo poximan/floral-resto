@@ -13,7 +13,7 @@ services:
       - "${POSTGRES_HOST_PORT}:${POSTGRES_PORT}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/config:/docker-entrypoint-initdb.d:ro
+      - ./postgres/config/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
       - ./postgres/datos:/postgres-datos:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -41,6 +41,7 @@ services:
     volumes:
       - ./postgres/config:/postgres-config:ro
       - ./postgres/datos:/postgres-datos:ro
+      - postgres_dataloader:/var/lib/postgresql/data
     command: ["sh", "/postgres-config/002_seed_csv.sh"]
 
   domain:
@@ -67,26 +68,24 @@ services:
       - "${HTTP_GW_HOST_PORT}:${HTTP_GW_PORT}"
     volumes:
       - ./assets:/app/assets:ro
+    networks:
+      - default
+      - restobar_edge
 
-  web-entrypoint:
+  web-server:
     build:
-      context: ./web-entrypoint
+      context: ./web-server
       dockerfile: Dockerfile
-    container_name: restobar-web-entrypoint
+    container_name: restobar-web-server
     restart: unless-stopped
     depends_on:
       - http-gw
     ports:
       - "${WEB_CARTA_PORT}:80"
       - "${WEB_GESTION_PORT}:81"
-
-  edge-adapter-tunel:
-    image: nginx:1.27-alpine
-    container_name: restobar-edge-adapter-tunel
-    restart: unless-stopped
-    volumes:
-      - ./edge-adapter-tunel/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./edge-adapter-tunel/edge-unavailable.html:/usr/share/nginx/html/edge-unavailable.html:ro
+    networks:
+      - default
+      - restobar_edge
 
   mqtt-client:
     build:
@@ -100,18 +99,15 @@ services:
         condition: service_healthy
       domain:
         condition: service_started
-      tunel-service:
-        condition: service_started
-
-  tunel-service:
-    build:
-      context: ./tunel-service
-    container_name: restobar-tunel-service
-    restart: unless-stopped
-    env_file:
-      - .env
-    depends_on:
-      - edge-adapter-tunel
+    networks:
+      - default
+      - restobar_edge
 
 volumes:
   postgres_data:
+  postgres_dataloader:
+
+networks:
+  restobar_edge:
+    external: true
+    name: restobar_edge

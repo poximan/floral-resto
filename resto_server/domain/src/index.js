@@ -63,7 +63,7 @@ app.setErrorHandler((error, request, reply) => {
   });
 });
 
-await healthRoute(app, config);
+await healthRoute(app, config, pool);
 await bootstrapRoutes(app, config);
 await authRoutes(app, authService);
 await eventRoutes(app);

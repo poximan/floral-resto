@@ -528,12 +528,46 @@ app.setErrorHandler((error, request, reply) => {
   });
 });
 
-app.get('/health', async () => ({
-  service: 'http-gw',
-  status: 'ok',
-  businessTimezone: process.env.BUSINESS_TIMEZONE,
-  domainEventStreamConnected,
-}));
+app.get('/health', async () => {
+  const dependencies = {
+    domain: {
+      status: 'unknown',
+      detail: 'sin verificar',
+    },
+    postgres: {
+      status: 'unknown',
+      detail: 'sin verificar',
+    },
+  };
+
+  try {
+    const response = await fetch(getDomainUrl('/health'), {
+      signal: AbortSignal.timeout(1500),
+    });
+    const payload = await response.json();
+    dependencies.domain = {
+      status: response.status < 500 ? payload.status ?? 'ok' : 'error',
+      detail: `HTTP ${response.status}`,
+    };
+    dependencies.postgres = payload.dependencies?.postgres ?? {
+      status: 'unknown',
+      detail: 'domain no informo postgres',
+    };
+  } catch (error) {
+    dependencies.domain = {
+      status: 'unreachable',
+      detail: error.message,
+    };
+  }
+
+  return {
+    service: 'http-gw',
+    status: dependencies.domain.status === 'ok' && dependencies.postgres.status === 'ok' ? 'ok' : 'degraded',
+    businessTimezone: process.env.BUSINESS_TIMEZONE,
+    domainEventStreamConnected,
+    dependencies,
+  };
+});
 
 app.get('/assets/menu/:fileName', async (request, reply) => {
   const fileName = request.params.fileName;
