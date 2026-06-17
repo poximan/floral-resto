@@ -3,3 +3,6 @@
 8hs comenzar a codear
 4hs pruebas despliegue
 8hs hacer andar la bidireccionalidad de la carta
+6hs correciones de usabildiad
+6hs correciones de usabildiad
+4hs cambios en fsm de comandas

@@ -5,6 +5,7 @@ export const MOBILE_CURRENT_FRAGMENT_KEYS = {
   queueAtendidoConsultas: 'queue.atendido.consultas',
   queuePendientePedidosCocina: 'queue.pendiente.pedidosCocina',
   queueAtendidoPedidosCocina: 'queue.atendido.pedidosCocina',
+  queueCobradaPedidosCocina: 'queue.cobrada.pedidosCocina',
   queuePendienteLlamadosMozo: 'queue.pendiente.llamadosMozo',
   queueAtendidoLlamadosMozo: 'queue.atendido.llamadosMozo',
 };

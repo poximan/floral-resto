@@ -2,12 +2,14 @@ import { createCatalogAdminService } from './catalog-admin-service.js';
 import { createMesaAdminService } from './mesa-admin-service.js';
 import { createDashboardAdminService } from './dashboard-admin-service.js';
 import { createVisualConfigService } from './visual-config-service.js';
+import { createPluginConfigService } from './plugin-config-service.js';
 
 export function createAdminService(pool, config, recordAuditEvent, publishDomainEvent) {
   const catalogAdminService = createCatalogAdminService(pool, recordAuditEvent, publishDomainEvent);
   const mesaAdminService = createMesaAdminService(pool, recordAuditEvent, publishDomainEvent);
   const dashboardAdminService = createDashboardAdminService(pool, config);
   const visualConfigService = createVisualConfigService(pool, recordAuditEvent, publishDomainEvent);
+  const pluginConfigService = createPluginConfigService(pool, recordAuditEvent, publishDomainEvent);
 
   return {
     listCategories: () => catalogAdminService.listCategories(),
@@ -22,7 +24,7 @@ export function createAdminService(pool, config, recordAuditEvent, publishDomain
     listMesas: () => mesaAdminService.listMesas(),
     createMesa: (payload, actorNombre) => mesaAdminService.createMesa(payload, actorNombre),
     openMesa: (mesaNumero, actorNombre) => mesaAdminService.openMesa(mesaNumero, actorNombre),
-    closeMesa: (mesaNumero, actorNombre) => mesaAdminService.closeMesa(mesaNumero, actorNombre),
+    closeMesa: (mesaNumero, actorNombre, options) => mesaAdminService.closeMesa(mesaNumero, actorNombre, options),
     getDashboard: () => dashboardAdminService.getDashboard(),
     getMobileSnapshot: () => dashboardAdminService.getMobileSnapshot(),
     getMobileCurrentDashboardMetrics: () => dashboardAdminService.getMobileCurrentDashboardMetrics(),
@@ -31,5 +33,10 @@ export function createAdminService(pool, config, recordAuditEvent, publishDomain
     getHistoryDataset: (payload) => dashboardAdminService.getHistoryDataset(payload),
     getVisualConfig: () => visualConfigService.getVisualConfig(),
     updateVisualConfig: (payload, actorNombre) => visualConfigService.updateVisualConfig(payload, actorNombre),
+    getMesaLayoutPlugin: () => pluginConfigService.getMesaLayoutPlugin(),
+    updateMesaLayoutPluginEnabled: (enabled, actorNombre) =>
+      pluginConfigService.updateMesaLayoutPluginEnabled(enabled, actorNombre),
+    updateMesaLayoutPluginConfig: (config, actorNombre) =>
+      pluginConfigService.updateMesaLayoutPluginConfig(config, actorNombre),
   };
 }

@@ -940,6 +940,35 @@ app.put('/api/internal/config', async (request) => {
   });
 });
 
+app.get('/api/internal/plugins/mesa-layout', async (request) => {
+  await requireInternalSession(request, ['mozo', 'encargado']);
+  return callDomain('/internal/admin/plugins/mesa-layout', {
+    headers: buildDomainSessionHeaders(request),
+  });
+});
+
+app.put('/api/internal/plugins/mesa-layout/enabled', async (request) => {
+  await requireInternalSession(request, ['encargado']);
+  return callDomain('/internal/admin/plugins/mesa-layout/enabled', {
+    method: 'PUT',
+    headers: buildDomainSessionHeaders(request),
+    body: JSON.stringify({
+      enabled: request.body?.enabled,
+    }),
+  });
+});
+
+app.put('/api/internal/plugins/mesa-layout/layout', async (request) => {
+  await requireInternalSession(request, ['mozo']);
+  return callDomain('/internal/admin/plugins/mesa-layout/layout', {
+    method: 'PUT',
+    headers: buildDomainSessionHeaders(request),
+    body: JSON.stringify({
+      config: request.body?.config ?? null,
+    }),
+  });
+});
+
 app.get('/api/internal/assets/menu-images', async (request) => {
   await requireInternalSession(request, ['encargado']);
   const directory = process.env.MENU_ASSETS_DIR;
@@ -1057,7 +1086,9 @@ app.post('/api/internal/mesas/:mesaNumero/close', async (request) => {
   return callDomain(`/internal/admin/mesas/${encodePathSegment(request.params.mesaNumero)}/close`, {
     method: 'POST',
     headers: buildDomainSessionHeaders(request),
-    body: JSON.stringify({}),
+    body: JSON.stringify({
+      confirmImpactedComandas: request.body?.confirmImpactedComandas === true,
+    }),
   });
 });
 
@@ -1118,6 +1149,18 @@ app.post('/api/internal/mozo/pedidos-cocina/:pedidoCocinaId/receive', async (req
   await requireInternalSession(request, ['mozo']);
   return callDomain(
     `/internal/waiter/pedidos-cocina/${request.params.pedidoCocinaId}/receive`,
+    {
+      method: 'POST',
+      headers: buildDomainSessionHeaders(request),
+      body: JSON.stringify({}),
+    },
+  );
+});
+
+app.post('/api/internal/mozo/pedidos-cocina/:pedidoCocinaId/charge', async (request) => {
+  await requireInternalSession(request, ['mozo']);
+  return callDomain(
+    `/internal/waiter/pedidos-cocina/${request.params.pedidoCocinaId}/charge`,
     {
       method: 'POST',
       headers: buildDomainSessionHeaders(request),

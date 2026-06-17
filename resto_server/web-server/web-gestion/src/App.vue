@@ -1,11 +1,18 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import {
+  MesaLayoutPlugin,
+  normalizeMesaLayoutState,
+} from '@mesa-layout-plugin';
 
 const httpGwDisplayUrl = window.location.origin;
 const authSession = ref(null);
 const currentRole = ref(null);
 const tunnelInfo = ref(null);
 const queueStatus = ref('pendiente');
+const mesaAdminViewMode = ref('texto');
+const mesaLayoutPluginEnabled = ref(false);
+const mesaLayoutState = ref(null);
 const loading = ref(false);
 const errorMessage = ref('');
 const infoMessage = ref('');
@@ -113,6 +120,10 @@ function queueStatusLabel(status) {
     return 'atendidos';
   }
 
+  if (status === 'cobrada') {
+    return 'cobrados';
+  }
+
   return status;
 }
 
@@ -124,6 +135,51 @@ function dashboardMetricLabel(key) {
   };
 
   return labels[key] ?? key;
+}
+
+function applyMesaLayoutPluginPayload(payload) {
+  if (typeof payload?.enabled !== 'boolean') {
+    throw new Error('El estado del plugin de mapa de mesas es invalido');
+  }
+
+  mesaLayoutPluginEnabled.value = payload.enabled;
+  mesaLayoutState.value = normalizeMesaLayoutState(payload.config);
+
+  if (!mesaLayoutPluginEnabled.value) {
+    mesaAdminViewMode.value = 'texto';
+  }
+}
+
+async function setMesaLayoutPluginEnabled(enabled) {
+  loading.value = true;
+  clearFeedback();
+  try {
+    const payload = await fetchJson('/api/internal/plugins/mesa-layout/enabled', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
+    applyMesaLayoutPluginPayload(payload);
+    showInfo(enabled ? 'El mapa grafico de mesas fue enchufado.' : 'El mapa grafico de mesas fue desenchufado.');
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function updateMesaLayoutState(nextState) {
+  clearFeedback();
+  try {
+    const payload = await fetchJson('/api/internal/plugins/mesa-layout/layout', {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: normalizeMesaLayoutState(nextState),
+      }),
+    });
+    applyMesaLayoutPluginPayload(payload);
+  } catch (error) {
+    showError(error.message);
+  }
 }
 
 function menuAssetUrl(fileName) {
@@ -209,6 +265,9 @@ function clearSessionState() {
   currentRole.value = null;
   dashboard.value = null;
   visualConfig.value = null;
+  mesaLayoutPluginEnabled.value = false;
+  mesaLayoutState.value = null;
+  mesaAdminViewMode.value = 'texto';
   menuImages.value = [];
   categorias.value = [];
   subcategorias.value = [];
@@ -250,12 +309,12 @@ async function handleDomainRealtimeEvent(payload) {
 
   try {
     if (authSession.value.role === 'mozo') {
-      await Promise.all([loadQueues(), loadMesas()]);
+      await Promise.all([loadQueues(), loadMesas(), loadMesaLayoutPlugin()]);
       return;
     }
 
     if (authSession.value.role === 'encargado') {
-      await loadDashboard();
+      await Promise.all([loadDashboard(), loadMesaLayoutPlugin()]);
     }
   } catch (error) {
     showError(error.message);
@@ -465,6 +524,11 @@ async function loadVisualConfig() {
   configForm.visualUsdExchangeRate = String(visualConfig.value.visualUsdExchangeRate ?? '');
 }
 
+async function loadMesaLayoutPlugin() {
+  const payload = await fetchJson('/api/internal/plugins/mesa-layout');
+  applyMesaLayoutPluginPayload(payload);
+}
+
 async function loadMenuImages() {
   menuImages.value = await fetchJson('/api/internal/assets/menu-images');
 }
@@ -477,9 +541,16 @@ async function loadRoleData() {
   clearFeedback();
   try {
     if (authSession.value.role === 'mozo') {
-      await Promise.all([loadQueues(), loadMesas(), loadVisualConfig()]);
+      await Promise.all([loadQueues(), loadMesas(), loadVisualConfig(), loadMesaLayoutPlugin()]);
     } else {
-      await Promise.all([loadDashboard(), loadCategorias(), loadSubcategorias(), loadProductos(), loadMenuImages()]);
+      await Promise.all([
+        loadDashboard(),
+        loadCategorias(),
+        loadSubcategorias(),
+        loadProductos(),
+        loadMenuImages(),
+        loadMesaLayoutPlugin(),
+      ]);
     }
   } catch (error) {
     showError(error.message);
@@ -842,6 +913,92 @@ async function createMesa() {
   }
 }
 
+async function chargeKitchenOrder() {
+  if (!detail.pedidoCocina?.id) {
+    return;
+  }
+  loading.value = true;
+  clearFeedback();
+  try {
+    await fetchJson(`/api/internal/mozo/pedidos-cocina/${detail.pedidoCocina.id}/charge`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    detail.pedidoCocina = null;
+    selectedIds.pedidosCocina = null;
+    await loadQueues();
+    showInfo('El pedido fue marcado como cobrado.');
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function shouldWarnBeforeClosingMesa(mesa) {
+  const clientesConectados = Number(mesa.clientesConectadosCount ?? 0);
+  const hasDiscardableComandas =
+    Number(mesa.comandasAbiertasCount ?? 0) > 0
+    || Number(mesa.comandasPendientesCount ?? 0) > 0;
+  const hasUnpaidAttendedComandas = Number(mesa.comandasAtendidasCount ?? 0) > 0;
+
+  return hasUnpaidAttendedComandas || (clientesConectados > 0 && hasDiscardableComandas);
+}
+
+function buildImpactedCloseMesaConfirmation(mesaNombre, mesa) {
+  const abiertas = Number(mesa.comandasAbiertasCount ?? 0);
+  const pendientes = Number(mesa.comandasPendientesCount ?? 0);
+  const atendidas = Number(mesa.comandasAtendidasCount ?? 0);
+  const partes = [];
+  const impactos = [];
+
+  if (abiertas > 0) {
+    partes.push(`${abiertas} comanda${abiertas === 1 ? '' : 's'} abierta${abiertas === 1 ? '' : 's'}`);
+  }
+
+  if (pendientes > 0) {
+    partes.push(`${pendientes} comanda${pendientes === 1 ? '' : 's'} pendiente${pendientes === 1 ? '' : 's'} sin recibir`);
+  }
+
+  if (atendidas > 0) {
+    partes.push(`${atendidas} comanda${atendidas === 1 ? '' : 's'} atendida${atendidas === 1 ? '' : 's'} sin cobrar`);
+  }
+
+  if (partes.length === 0) {
+    return `La mesa ${mesaNombre} tiene comandas que requieren confirmacion de cierre. Deseas continuar?`;
+  }
+
+  if (abiertas > 0 || pendientes > 0) {
+    impactos.push('las abiertas o pendientes se van a descartar');
+  }
+
+  if (atendidas > 0) {
+    impactos.push('las atendidas quedaran sin cobrar');
+  }
+
+  return `La mesa ${mesaNombre} tiene ${partes.join(' y ')}. Si la cerras, ${impactos.join(' y ')}. Deseas continuar?`;
+}
+
+async function requestCloseMesa(mesaNombre, confirmImpactedComandas) {
+  return fetchJson(`/api/internal/mesas/${encodeURIComponent(mesaNombre)}/close`, {
+    method: 'POST',
+    body: JSON.stringify({
+      confirmImpactedComandas,
+    }),
+  });
+}
+
+async function finishCloseMesaRefresh() {
+  await Promise.all([loadMesas(), loadQueues()]);
+  detail.consulta = null;
+  detail.pedidoCocina = null;
+  detail.llamadoMozo = null;
+  selectedIds.consultas = null;
+  selectedIds.pedidosCocina = null;
+  selectedIds.llamadosMozo = null;
+  showInfo('La mesa fue cerrada correctamente.');
+}
+
 async function openMesa(mesa) {
   loading.value = true;
   clearFeedback();
@@ -861,24 +1018,20 @@ async function openMesa(mesa) {
 
 async function closeMesa(mesa) {
   const mesaNombre = mesa.nombre ?? mesa.numero;
-  if (!window.confirm(`Deseas cerrar la mesa ${mesaNombre}?`)) {
+  const shouldConfirmImpactedComandas = shouldWarnBeforeClosingMesa(mesa);
+
+  if (
+    shouldConfirmImpactedComandas
+    && !window.confirm(buildImpactedCloseMesaConfirmation(mesaNombre, mesa))
+  ) {
     return;
   }
+
   loading.value = true;
   clearFeedback();
   try {
-    await fetchJson(`/api/internal/mesas/${encodeURIComponent(mesaNombre)}/close`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    await Promise.all([loadMesas(), loadQueues()]);
-    detail.consulta = null;
-    detail.pedidoCocina = null;
-    detail.llamadoMozo = null;
-    selectedIds.consultas = null;
-    selectedIds.pedidosCocina = null;
-    selectedIds.llamadosMozo = null;
-    showInfo('La mesa fue cerrada correctamente.');
+    await requestCloseMesa(mesaNombre, shouldConfirmImpactedComandas);
+    await finishCloseMesaRefresh();
   } catch (error) {
     showError(error.message);
   } finally {
@@ -995,6 +1148,7 @@ onBeforeUnmount(() => {
             <div class="toolbar">
               <button class="pill" :class="{ 'pill-active': queueStatus === 'pendiente' }" @click="switchStatus('pendiente')">Pendientes</button>
               <button class="pill" :class="{ 'pill-active': queueStatus === 'atendido' }" @click="switchStatus('atendido')">Atendidos</button>
+              <button class="pill" :class="{ 'pill-active': queueStatus === 'cobrada' }" @click="switchStatus('cobrada')">Cobrados</button>
             </div>
             <div class="columns">
               <article v-for="column in columns" :key="column.key" class="column-card">
@@ -1036,6 +1190,9 @@ onBeforeUnmount(() => {
                   <div v-if="detail.pedidoCocina.estado === 'pendiente'" class="detail-actions">
                     <button class="primary-button" :disabled="loading" @click="receiveKitchenOrder">Recibido</button>
                   </div>
+                  <div v-else-if="detail.pedidoCocina.estado === 'atendida'" class="detail-actions">
+                    <button class="primary-button" :disabled="loading" @click="chargeKitchenOrder">Cobrar</button>
+                  </div>
                 </div>
                 <div v-else-if="column.key === 'llamadosMozo' && detail.llamadoMozo" class="detail">
                   <strong>Llamado mesa {{ detail.llamadoMozo.mesaNumero }}</strong>
@@ -1065,7 +1222,34 @@ onBeforeUnmount(() => {
                 />
                 <button class="primary-button" :disabled="loading">{{ mesaActionLabel }}</button>
               </form>
-              <div class="table-list table-list-mesas">
+              <div v-if="mesaLayoutPluginEnabled" class="toolbar mesa-view-toolbar">
+                <button
+                  class="pill"
+                  :class="{ 'pill-active': mesaAdminViewMode === 'grafico' }"
+                  type="button"
+                  @click="mesaAdminViewMode = 'grafico'"
+                >
+                  Grafico
+                </button>
+                <button
+                  class="pill"
+                  :class="{ 'pill-active': mesaAdminViewMode === 'texto' }"
+                  type="button"
+                  @click="mesaAdminViewMode = 'texto'"
+                >
+                  Texto
+                </button>
+              </div>
+              <MesaLayoutPlugin
+                v-if="mesaLayoutPluginEnabled && mesaLayoutState && mesaAdminViewMode === 'grafico'"
+                :mesas="mesas"
+                :layout-state="mesaLayoutState"
+                :loading="loading"
+                @update:layout-state="updateMesaLayoutState"
+                @open-mesa="openMesa"
+                @close-mesa="closeMesa"
+              />
+              <div v-else class="table-list table-list-mesas">
                 <article v-for="mesa in mesas" :key="mesa.id" class="table-row">
                   <div>
                     <strong>Mesa {{ mesa.nombre ?? mesa.numero }}</strong>
@@ -1085,7 +1269,7 @@ onBeforeUnmount(() => {
           <section class="panel-block metrics-grid">
             <article v-for="metric in dashboard?.colas ?? []" :key="metric.cola" class="metric-card">
               <p>{{ dashboardMetricLabel(metric.cola) }}</p>
-              <strong>{{ metric.pendientes }} pendientes / {{ metric.atendidos }} atendidos</strong>
+              <strong>{{ metric.pendientes }} pendientes / {{ metric.atendidos }} atendidos / {{ metric.cobrados ?? 0 }} cobrados</strong>
               <span>Medio {{ Math.round(metric.tiempoMedioSegundos) }} s</span>
               <span>Min {{ Math.round(metric.tiempoMinimoSegundos) }} s</span>
               <span>Max {{ Math.round(metric.tiempoMaximoSegundos) }} s</span>
@@ -1097,6 +1281,37 @@ onBeforeUnmount(() => {
           </section>
 
           <section class="panel-block secondary-grid">
+            <article class="admin-card">
+              <h2>Plugins operativos</h2>
+              <p>Activa capacidades opcionales para la pantalla del mozo.</p>
+              <div class="table-list">
+                <article class="table-row">
+                  <div>
+                    <strong>Mapa grafico de mesas</strong>
+                    <p>{{ mesaLayoutPluginEnabled ? 'Enchufado' : 'Desenchufado' }}</p>
+                  </div>
+                  <div class="row-actions">
+                    <button
+                      class="primary-button"
+                      type="button"
+                      :disabled="loading || mesaLayoutPluginEnabled"
+                      @click="setMesaLayoutPluginEnabled(true)"
+                    >
+                      Enchufar
+                    </button>
+                    <button
+                      class="ghost-button"
+                      type="button"
+                      :disabled="loading || !mesaLayoutPluginEnabled"
+                      @click="setMesaLayoutPluginEnabled(false)"
+                    >
+                      Desenchufar
+                    </button>
+                  </div>
+                </article>
+              </div>
+            </article>
+
             <article class="admin-card">
               <h2>Categorias</h2>
               <form class="simple-form" @submit.prevent="createCategory">

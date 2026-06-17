@@ -13,6 +13,7 @@ function parsePositiveId(value, message) {
 export async function adminRoutes(app, adminService, authService) {
   const encargadoGuard = createRoleGuard(authService, ['encargado'], { touchActivity: true });
   const mozoGuard = createRoleGuard(authService, ['mozo']);
+  const pluginReadGuard = createRoleGuard(authService, ['mozo', 'encargado']);
 
   app.get('/internal/admin/dashboard', { preHandler: encargadoGuard }, async () => adminService.getDashboard());
 
@@ -22,6 +23,29 @@ export async function adminRoutes(app, adminService, authService) {
     adminService.updateVisualConfig({
       visualUsdExchangeRate: request.body?.visualUsdExchangeRate,
     }, request.authSession.actorNombre));
+
+  app.get('/internal/admin/plugins/mesa-layout', { preHandler: pluginReadGuard }, async () =>
+    adminService.getMesaLayoutPlugin());
+
+  app.put('/internal/admin/plugins/mesa-layout/enabled', { preHandler: encargadoGuard }, async (request) => {
+    const payload = await adminService.updateMesaLayoutPluginEnabled(
+      request.body?.enabled,
+      request.authSession.actorNombre,
+    );
+
+    await authService.touchRelevantEvent(request.authSession.sessionToken);
+    return payload;
+  });
+
+  app.put('/internal/admin/plugins/mesa-layout/layout', { preHandler: mozoGuard }, async (request) => {
+    const payload = await adminService.updateMesaLayoutPluginConfig(
+      request.body?.config ?? null,
+      request.authSession.actorNombre,
+    );
+
+    await authService.touchRelevantEvent(request.authSession.sessionToken);
+    return payload;
+  });
 
   app.get('/internal/admin/categorias', { preHandler: encargadoGuard }, async () => adminService.listCategories());
 
@@ -89,6 +113,9 @@ export async function adminRoutes(app, adminService, authService) {
     const payload = await adminService.closeMesa(
       String(request.params.mesaNumero ?? '').trim(),
       request.authSession.actorNombre,
+      {
+        confirmImpactedComandas: request.body?.confirmImpactedComandas === true,
+      },
     );
 
     await authService.touchRelevantEvent(request.authSession.sessionToken);

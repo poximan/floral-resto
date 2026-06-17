@@ -39,6 +39,7 @@ export function bindDashboardReadModelDao(client) {
               'consultas' AS cola,
               COUNT(*) FILTER (WHERE c.estado = 'pendiente') AS pendientes,
               COUNT(*) FILTER (WHERE c.estado = 'atendido') AS atendidos,
+              0 AS cobrados,
               COALESCE(
                 AVG(EXTRACT(EPOCH FROM (COALESCE(c.cerrada_en, NOW()) - c.creada_en))),
                 0
@@ -58,21 +59,24 @@ export function bindDashboardReadModelDao(client) {
             UNION ALL
             SELECT
               'pedidos_cocina' AS cola,
-              COUNT(*) FILTER (WHERE pk.estado = 'pendiente') AS pendientes,
-              COUNT(*) FILTER (WHERE pk.estado = 'atendido') AS atendidos,
+              COUNT(*) FILTER (WHERE cs.estado = 'pendiente') AS pendientes,
+              COUNT(*) FILTER (WHERE cs.estado = 'atendida') AS atendidos,
+              COUNT(*) FILTER (WHERE cs.estado = 'cobrada') AS cobrados,
               COALESCE(
-                AVG(EXTRACT(EPOCH FROM (COALESCE(pk.atendida_en, NOW()) - pk.creada_en))),
+                AVG(EXTRACT(EPOCH FROM (COALESCE(cs.atendida_en, NOW()) - pk.creada_en))),
                 0
               ) AS tiempo_medio_segundos,
               COALESCE(
-                MIN(EXTRACT(EPOCH FROM (COALESCE(pk.atendida_en, NOW()) - pk.creada_en))),
+                MIN(EXTRACT(EPOCH FROM (COALESCE(cs.atendida_en, NOW()) - pk.creada_en))),
                 0
               ) AS tiempo_minimo_segundos,
               COALESCE(
-                MAX(EXTRACT(EPOCH FROM (COALESCE(pk.atendida_en, NOW()) - pk.creada_en))),
+                MAX(EXTRACT(EPOCH FROM (COALESCE(cs.atendida_en, NOW()) - pk.creada_en))),
                 0
               ) AS tiempo_maximo_segundos
             FROM pedidos_cocina pk
+            JOIN comanda_sesiones cs
+              ON cs.id = pk.comanda_sesion_id
             CROSS JOIN rango r
             WHERE pk.creada_en >= r.inicio_utc
               AND pk.creada_en < r.fin_utc
@@ -81,6 +85,7 @@ export function bindDashboardReadModelDao(client) {
               'llamados_mozo' AS cola,
               COUNT(*) FILTER (WHERE lm.estado = 'pendiente') AS pendientes,
               COUNT(*) FILTER (WHERE lm.estado = 'atendido') AS atendidos,
+              0 AS cobrados,
               COALESCE(
                 AVG(EXTRACT(EPOCH FROM (COALESCE(lm.atendida_en, NOW()) - lm.creada_en))),
                 0
@@ -102,8 +107,8 @@ export function bindDashboardReadModelDao(client) {
             SELECT COALESCE(SUM(cs.total_ars_centavos), 0) AS total
             FROM comanda_sesiones cs
             CROSS JOIN rango r
-            WHERE cs.cobrado_en >= r.inicio_utc
-              AND cs.cobrado_en < r.fin_utc
+            WHERE cs.cobrada_en >= r.inicio_utc
+              AND cs.cobrada_en < r.fin_utc
           ),
           dinero_por_mesa AS (
             SELECT
@@ -115,8 +120,8 @@ export function bindDashboardReadModelDao(client) {
             JOIN mesas m
               ON m.id = ms.mesa_id
             CROSS JOIN rango r
-            WHERE cs.cobrado_en >= r.inicio_utc
-              AND cs.cobrado_en < r.fin_utc
+            WHERE cs.cobrada_en >= r.inicio_utc
+              AND cs.cobrada_en < r.fin_utc
             GROUP BY m.nombre
             ORDER BY m.nombre ASC
           )
@@ -199,10 +204,12 @@ export function bindDashboardReadModelDao(client) {
         `
           SELECT
             pk.id,
-            pk.estado,
+            cs.estado,
             pk.creada_en,
-            pk.atendida_en,
-            pk.atendida_por,
+            cs.atendida_en,
+            cs.atendida_por,
+            cs.cobrada_en,
+            cs.cobrada_por,
             ms.id AS mesa_sesion_id,
             m.nombre AS mesa_numero,
             cs.total_ars_centavos,
@@ -236,8 +243,8 @@ export function bindDashboardReadModelDao(client) {
             ON ms.id = cs.mesa_sesion_id
           JOIN mesas m
             ON m.id = ms.mesa_id
-          WHERE pk.estado = 'pendiente'
-             OR (pk.estado = 'atendido' AND pk.creada_en >= $1 AND pk.creada_en < $2)
+          WHERE cs.estado = 'pendiente'
+             OR (cs.estado IN ('atendida', 'cobrada') AND pk.creada_en >= $1 AND pk.creada_en < $2)
           ORDER BY pk.creada_en ASC
         `,
         [range.fromUtc, range.toUtc],
@@ -332,10 +339,12 @@ export function bindDashboardReadModelDao(client) {
         `
           SELECT
             pk.id,
-            pk.estado,
+            cs.estado,
             pk.creada_en,
-            pk.atendida_en,
-            pk.atendida_por,
+            cs.atendida_en,
+            cs.atendida_por,
+            cs.cobrada_en,
+            cs.cobrada_por,
             ms.id AS mesa_sesion_id,
             m.nombre AS mesa_numero,
             cs.total_ars_centavos,

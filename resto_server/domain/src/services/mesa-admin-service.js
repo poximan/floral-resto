@@ -26,6 +26,10 @@ function mapMesa(row) {
     mesaSesionId: row.mesa_sesion_id ? Number(row.mesa_sesion_id) : null,
     comandaConfirmada: Number(row.comandas_confirmadas_count ?? 0) > 0,
     comandasConfirmadasCount: Number(row.comandas_confirmadas_count ?? 0),
+    comandasAbiertasCount: Number(row.comandas_abiertas_count ?? 0),
+    comandasPendientesCount: Number(row.comandas_pendientes_count ?? 0),
+    comandasAtendidasCount: Number(row.comandas_atendidas_count ?? 0),
+    clientesConectadosCount: Number(row.clientes_conectados_count ?? 0),
   };
 }
 
@@ -74,7 +78,7 @@ async function createMesa(db, recordAuditEvent, payload, actorNombre) {
   });
 }
 
-async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, actorNombre) {
+async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, actorNombre, options = {}) {
   const nombre = normalizeMesaNombre(mesaNumero);
 
   return db.withTransaction(async ({ client, repository }) => {
@@ -89,14 +93,24 @@ async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, a
     }
 
     const actor = actorNombre ?? 'mozo';
+    const hasDiscardableComandas =
+      Number(mesaSesion.comandas_abiertas_count ?? 0) > 0
+      || Number(mesaSesion.comandas_pendientes_count ?? 0) > 0;
+    const hasUnpaidAttendedComandas = Number(mesaSesion.comandas_atendidas_count ?? 0) > 0;
+    const isOrphanMesaSession = Number(mesaSesion.clientes_conectados_count ?? 0) === 0;
+    const requiresImpactedComandasConfirmation =
+      hasUnpaidAttendedComandas
+      || (!isOrphanMesaSession && hasDiscardableComandas);
+
+    if (requiresImpactedComandasConfirmation && options.confirmImpactedComandas !== true) {
+      throw new DomainError(409, 'La mesa tiene comandas abiertas, pendientes o atendidas sin cobrar. Confirma el cierre para continuar');
+    }
 
     await repository.closeMesaSession(mesaSesion.id);
     await repository.disconnectMesaClients(mesaSesion.id);
     await repository.closePendingConsultas(mesaSesion.id, `mozo:${actor}`);
     await repository.receivePendingWaiterCalls(mesaSesion.id, actor);
-    await repository.receivePendingKitchenOrders(mesaSesion.id, actor);
-    await repository.markConfirmedComandasAsPaid(mesaSesion.id);
-    await repository.clearOpenComanda(mesaSesion.id);
+    await repository.discardOpenAndPendingComandas(mesaSesion.id);
 
     await recordAuditEvent(client, {
       agregado: 'mesa_sesiones',
@@ -108,6 +122,10 @@ async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, a
         mesaNumero: mesa.nombre,
         comandaConfirmada: Number(mesaSesion.comandas_confirmadas_count) > 0,
         comandasConfirmadasCount: Number(mesaSesion.comandas_confirmadas_count),
+        comandasAbiertasDescartadasCount: Number(mesaSesion.comandas_abiertas_count),
+        comandasPendientesDescartadasCount: Number(mesaSesion.comandas_pendientes_count),
+        comandasAtendidasSinCobrarCount: Number(mesaSesion.comandas_atendidas_count),
+        clientesConectadosCount: Number(mesaSesion.clientes_conectados_count),
       },
     });
 
@@ -122,6 +140,7 @@ async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, a
         MOBILE_CURRENT_FRAGMENT_KEYS.queueAtendidoConsultas,
         MOBILE_CURRENT_FRAGMENT_KEYS.queuePendientePedidosCocina,
         MOBILE_CURRENT_FRAGMENT_KEYS.queueAtendidoPedidosCocina,
+        MOBILE_CURRENT_FRAGMENT_KEYS.queueCobradaPedidosCocina,
         MOBILE_CURRENT_FRAGMENT_KEYS.queuePendienteLlamadosMozo,
         MOBILE_CURRENT_FRAGMENT_KEYS.queueAtendidoLlamadosMozo,
       ],
@@ -135,6 +154,10 @@ async function closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, a
       mesaSesionId: Number(mesaSesion.id),
       comandaConfirmada: Number(mesaSesion.comandas_confirmadas_count) > 0,
       comandasConfirmadasCount: Number(mesaSesion.comandas_confirmadas_count),
+      comandasAbiertasDescartadasCount: Number(mesaSesion.comandas_abiertas_count),
+      comandasPendientesDescartadasCount: Number(mesaSesion.comandas_pendientes_count),
+      comandasAtendidasSinCobrarCount: Number(mesaSesion.comandas_atendidas_count),
+      clientesConectadosCount: Number(mesaSesion.clientes_conectados_count),
       cerrada: true,
     };
   });
@@ -187,7 +210,7 @@ export function createMesaAdminService(pool, recordAuditEvent, publishDomainEven
     createMesa: (payload, actorNombre) => createMesa(db, recordAuditEvent, payload, actorNombre),
     openMesa: (mesaNumero, actorNombre) =>
       openMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, actorNombre),
-    closeMesa: (mesaNumero, actorNombre) =>
-      closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, actorNombre),
+    closeMesa: (mesaNumero, actorNombre, options) =>
+      closeMesa(db, recordAuditEvent, publishDomainEvent, mesaNumero, actorNombre, options),
   };
 }

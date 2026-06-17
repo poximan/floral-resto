@@ -25,8 +25,10 @@ COPY web-gestion/index.html ./index.html
 COPY web-gestion/vite.config.js ./vite.config.js
 COPY web-gestion/src ./src
 COPY web-gestion/public ./public
+COPY plugin ./plugin
 
 ENV VITE_APP_BASE_PATH=/gestion/
+ENV VITE_MESA_LAYOUT_PLUGIN_DIR=./plugin/mesa-layout
 
 RUN npm run build
 

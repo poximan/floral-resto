@@ -266,7 +266,8 @@ async function getConfirmedComandasWithItems(repository, mesaSesionId, clientSes
       numeroOrden: Number(comanda.numero_orden),
       totalArsCentavos: Number(comanda.total_ars_centavos),
       confirmadaEn: comanda.confirmada_en,
-      cobradaEn: comanda.cobrado_en,
+      atendidaEn: comanda.atendida_en,
+      cobradaEn: comanda.cobrada_en,
       items,
       misItems,
       miTotalArsCentavos: misItems.reduce(

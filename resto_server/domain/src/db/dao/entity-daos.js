@@ -64,23 +64,50 @@ export function bindMesasDao(client) {
             m.nombre,
             ms.id AS mesa_sesion_id,
             COALESCE(cs.comandas_confirmadas_count, 0) AS comandas_confirmadas_count,
+            COALESCE(cs.comandas_abiertas_count, 0) AS comandas_abiertas_count,
+            COALESCE(cs.comandas_pendientes_count, 0) AS comandas_pendientes_count,
+            COALESCE(cs.comandas_atendidas_count, 0) AS comandas_atendidas_count,
+            COALESCE(mc.clientes_conectados_count, 0) AS clientes_conectados_count,
             (ms.id IS NOT NULL) AS sesion_activa
           FROM mesas m
           LEFT JOIN mesa_sesiones ms
             ON ms.mesa_id = m.id
            AND ms.estado = 'abierta'
           LEFT JOIN (
-            SELECT mesa_sesion_id, COUNT(*) AS comandas_confirmadas_count
+            SELECT
+              mesa_sesion_id,
+              COUNT(*) FILTER (WHERE estado IN ('pendiente', 'atendida', 'cobrada')) AS comandas_confirmadas_count,
+              COUNT(*) FILTER (WHERE estado = 'abierta') AS comandas_abiertas_count,
+              COUNT(*) FILTER (WHERE estado = 'pendiente') AS comandas_pendientes_count,
+              COUNT(*) FILTER (WHERE estado = 'atendida') AS comandas_atendidas_count
             FROM comanda_sesiones
-            WHERE estado = 'confirmada'
             GROUP BY mesa_sesion_id
           ) cs
             ON cs.mesa_sesion_id = ms.id
+          LEFT JOIN (
+            SELECT mesa_sesion_id, COUNT(*) AS clientes_conectados_count
+            FROM mesa_clientes
+            WHERE conectada = TRUE
+            GROUP BY mesa_sesion_id
+          ) mc
+            ON mc.mesa_sesion_id = ms.id
           ORDER BY m.nombre ASC
         `,
       );
 
       return result.rows;
+    },
+
+    async listIds() {
+      const result = await client.query(
+        `
+          SELECT id
+          FROM mesas
+          ORDER BY id ASC
+        `,
+      );
+
+      return result.rows.map((row) => Number(row.id));
     },
 
     async create(nombre) {
@@ -463,6 +490,68 @@ export function bindConfiguracionVisualDao(client) {
   };
 }
 
+export function bindPluginsOperativosDao(client) {
+  return {
+    async getById(pluginId) {
+      const result = await client.query(
+        `
+          SELECT plugin_id, habilitado, configuracion_json, updated_at
+          FROM plugins_operativos
+          WHERE plugin_id = $1
+          LIMIT 1
+        `,
+        [pluginId],
+      );
+
+      return result.rows[0] ?? null;
+    },
+
+    async getByIdForUpdate(pluginId) {
+      const result = await client.query(
+        `
+          SELECT plugin_id, habilitado, configuracion_json, updated_at
+          FROM plugins_operativos
+          WHERE plugin_id = $1
+          FOR UPDATE
+        `,
+        [pluginId],
+      );
+
+      return result.rows[0] ?? null;
+    },
+
+    async updateEnabled(pluginId, enabled) {
+      const result = await client.query(
+        `
+          UPDATE plugins_operativos
+          SET habilitado = $2,
+              updated_at = NOW()
+          WHERE plugin_id = $1
+          RETURNING plugin_id, habilitado, configuracion_json, updated_at
+        `,
+        [pluginId, enabled],
+      );
+
+      return result.rows[0] ?? null;
+    },
+
+    async updateConfig(pluginId, config) {
+      const result = await client.query(
+        `
+          UPDATE plugins_operativos
+          SET configuracion_json = $2::jsonb,
+              updated_at = NOW()
+          WHERE plugin_id = $1
+          RETURNING plugin_id, habilitado, configuracion_json, updated_at
+        `,
+        [pluginId, JSON.stringify(config)],
+      );
+
+      return result.rows[0] ?? null;
+    },
+  };
+}
+
 export function bindMesaSesionesDao(client) {
   return {
     ...createCrudDao(client, 'mesa_sesiones', 'id, mesa_id, estado, creada_en, cerrada_en'),
@@ -538,8 +627,32 @@ export function bindMesaSesionesDao(client) {
               SELECT COUNT(*)
               FROM comanda_sesiones cs
               WHERE cs.mesa_sesion_id = ms.id
-                AND cs.estado = 'confirmada'
-            ) AS comandas_confirmadas_count
+                AND cs.estado IN ('pendiente', 'atendida', 'cobrada')
+            ) AS comandas_confirmadas_count,
+            (
+              SELECT COUNT(*)
+              FROM comanda_sesiones cs
+              WHERE cs.mesa_sesion_id = ms.id
+                AND cs.estado = 'abierta'
+            ) AS comandas_abiertas_count,
+            (
+              SELECT COUNT(*)
+              FROM comanda_sesiones cs
+              WHERE cs.mesa_sesion_id = ms.id
+                AND cs.estado = 'pendiente'
+            ) AS comandas_pendientes_count,
+            (
+              SELECT COUNT(*)
+              FROM comanda_sesiones cs
+              WHERE cs.mesa_sesion_id = ms.id
+                AND cs.estado = 'atendida'
+            ) AS comandas_atendidas_count,
+            (
+              SELECT COUNT(*)
+              FROM mesa_clientes mc
+              WHERE mc.mesa_sesion_id = ms.id
+                AND mc.conectada = TRUE
+            ) AS clientes_conectados_count
           FROM mesa_sesiones ms
           WHERE ms.mesa_id = $1
             AND ms.estado = 'abierta'
@@ -790,13 +903,13 @@ export function bindComandaSesionesDao(client) {
     ...createCrudDao(
       client,
       'comanda_sesiones',
-      'id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, cobrado_en',
+      'id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, atendida_en, atendida_por, cobrada_en, cobrada_por',
     ),
 
     async getOpenByMesaSesion(mesaSesionId) {
       const result = await client.query(
         `
-          SELECT id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, cobrado_en
+          SELECT id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, atendida_en, atendida_por, cobrada_en, cobrada_por
           FROM comanda_sesiones
           WHERE mesa_sesion_id = $1
             AND estado = 'abierta'
@@ -815,7 +928,7 @@ export function bindComandaSesionesDao(client) {
         `
           INSERT INTO comanda_sesiones (mesa_sesion_id, estado)
           VALUES ($1, 'abierta')
-          RETURNING id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, cobrado_en
+          RETURNING id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, atendida_en, atendida_por, cobrada_en, cobrada_por
         `,
         [mesaSesionId],
       );
@@ -829,7 +942,7 @@ export function bindComandaSesionesDao(client) {
           SELECT COALESCE(MAX(numero_orden), 0) + 1 AS siguiente_numero
           FROM comanda_sesiones
           WHERE mesa_sesion_id = $1
-            AND estado = 'confirmada'
+            AND estado IN ('pendiente', 'atendida', 'cobrada')
         `,
         [mesaSesionId],
       );
@@ -841,13 +954,13 @@ export function bindComandaSesionesDao(client) {
       const result = await client.query(
         `
           UPDATE comanda_sesiones
-          SET estado = 'confirmada',
+          SET estado = 'pendiente',
               numero_orden = $2,
               total_ars_centavos = $3,
               confirmada_en = NOW()
           WHERE id = $1
             AND estado = 'abierta'
-          RETURNING id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, cobrado_en
+          RETURNING id, mesa_sesion_id, numero_orden, estado, total_ars_centavos, creada_en, confirmada_en, atendida_en, atendida_por, cobrada_en, cobrada_por
         `,
         [id, numeroOrden, totalArsCentavos],
       );
@@ -855,26 +968,47 @@ export function bindComandaSesionesDao(client) {
       return result.rows[0] ?? null;
     },
 
-    async markConfirmedComandasAsPaid(mesaSesionId) {
-      await client.query(
+    async markPendingAsAttended(id, actorNombre) {
+      const result = await client.query(
         `
           UPDATE comanda_sesiones
-          SET cobrado_en = NOW()
-          WHERE mesa_sesion_id = $1
-            AND estado = 'confirmada'
-            AND cobrado_en IS NULL
+          SET estado = 'atendida',
+              atendida_en = NOW(),
+              atendida_por = $2
+          WHERE id = $1
+            AND estado = 'pendiente'
+          RETURNING id
         `,
-        [mesaSesionId],
+        [id, actorNombre],
       );
+
+      return result;
+    },
+
+    async markAttendedAsPaid(id, actorNombre) {
+      const result = await client.query(
+        `
+          UPDATE comanda_sesiones
+          SET estado = 'cobrada',
+              cobrada_en = NOW(),
+              cobrada_por = $2
+          WHERE id = $1
+            AND estado = 'atendida'
+          RETURNING id
+        `,
+        [id, actorNombre],
+      );
+
+      return result;
     },
 
     async listConfirmedByMesaSesion(mesaSesionId) {
       const result = await client.query(
         `
-          SELECT id, numero_orden, total_ars_centavos, confirmada_en, cobrado_en
+          SELECT id, numero_orden, estado, total_ars_centavos, confirmada_en, atendida_en, cobrada_en
           FROM comanda_sesiones
           WHERE mesa_sesion_id = $1
-            AND estado = 'confirmada'
+            AND estado IN ('pendiente', 'atendida', 'cobrada')
           ORDER BY numero_orden DESC
         `,
         [mesaSesionId],
@@ -889,6 +1023,17 @@ export function bindComandaSesionesDao(client) {
           DELETE FROM comanda_sesiones
           WHERE mesa_sesion_id = $1
             AND estado = 'abierta'
+        `,
+        [mesaSesionId],
+      );
+    },
+
+    async clearDiscardableByMesaSesion(mesaSesionId) {
+      await client.query(
+        `
+          DELETE FROM comanda_sesiones
+          WHERE mesa_sesion_id = $1
+            AND estado IN ('abierta', 'pendiente')
         `,
         [mesaSesionId],
       );
@@ -918,6 +1063,32 @@ export function bindComandaItemsDao(client) {
       );
 
       return result.rows;
+    },
+
+    async deleteByOpenMesaSesion(mesaSesionId) {
+      await client.query(
+        `
+          DELETE FROM comanda_items ci
+          USING comanda_sesiones cs
+          WHERE ci.comanda_sesion_id = cs.id
+            AND cs.mesa_sesion_id = $1
+            AND cs.estado = 'abierta'
+        `,
+        [mesaSesionId],
+      );
+    },
+
+    async deleteByDiscardableMesaSesion(mesaSesionId) {
+      await client.query(
+        `
+          DELETE FROM comanda_items ci
+          USING comanda_sesiones cs
+          WHERE ci.comanda_sesion_id = cs.id
+            AND cs.mesa_sesion_id = $1
+            AND cs.estado IN ('abierta', 'pendiente')
+        `,
+        [mesaSesionId],
+      );
     },
 
     async listRows(comandaSesionId) {
@@ -1507,34 +1678,30 @@ export function bindLlamadosMozoDao(client) {
 
 export function bindPedidosCocinaDao(client) {
   return {
-    ...createCrudDao(client, 'pedidos_cocina', 'id, comanda_sesion_id, estado, creada_en, atendida_en, atendida_por'),
+    ...createCrudDao(client, 'pedidos_cocina', 'id, comanda_sesion_id, creada_en'),
 
     async createPending(comandaSesionId) {
       await client.query(
         `
           INSERT INTO pedidos_cocina (
-            comanda_sesion_id,
-            estado
+            comanda_sesion_id
           )
-          VALUES ($1, 'pendiente')
+          VALUES ($1)
         `,
         [comandaSesionId],
       );
     },
 
-    async receivePendingByMesaSesion(mesaSesionId, actorNombre) {
+    async deleteByDiscardableMesaSesion(mesaSesionId) {
       await client.query(
         `
-          UPDATE pedidos_cocina pk
-          SET estado = 'atendido',
-              atendida_en = NOW(),
-              atendida_por = $2
-          FROM comanda_sesiones cs
+          DELETE FROM pedidos_cocina pk
+          USING comanda_sesiones cs
           WHERE cs.id = pk.comanda_sesion_id
             AND cs.mesa_sesion_id = $1
-            AND pk.estado = 'pendiente'
+            AND cs.estado IN ('abierta', 'pendiente')
         `,
-        [mesaSesionId, actorNombre],
+        [mesaSesionId],
       );
     },
 
@@ -1543,9 +1710,10 @@ export function bindPedidosCocinaDao(client) {
         `
           SELECT
             pk.id,
-            pk.estado,
+            cs.estado,
             pk.creada_en,
-            pk.atendida_en,
+            cs.atendida_en,
+            cs.cobrada_en,
             ms.id AS mesa_sesion_id,
             m.nombre AS mesa_numero,
             cs.total_ars_centavos
@@ -1556,8 +1724,8 @@ export function bindPedidosCocinaDao(client) {
             ON ms.id = cs.mesa_sesion_id
           JOIN mesas m
             ON m.id = ms.mesa_id
-          WHERE pk.estado = $1
-          ORDER BY pk.creada_en ASC
+          WHERE cs.estado = $1
+          ORDER BY COALESCE(cs.cobrada_en, cs.atendida_en, cs.confirmada_en, pk.creada_en) ASC
         `,
         [status],
       );
@@ -1570,9 +1738,12 @@ export function bindPedidosCocinaDao(client) {
         `
           SELECT
             pk.id,
-            pk.estado,
+            cs.estado,
             pk.creada_en,
-            pk.atendida_en,
+            cs.atendida_en,
+            cs.atendida_por,
+            cs.cobrada_en,
+            cs.cobrada_por,
             cs.id AS comanda_sesion_id,
             cs.total_ars_centavos,
             ms.id AS mesa_sesion_id,
@@ -1596,13 +1767,34 @@ export function bindPedidosCocinaDao(client) {
     async receiveById(id, actorNombre) {
       const result = await client.query(
         `
-          UPDATE pedidos_cocina
-          SET estado = 'atendido',
+          UPDATE comanda_sesiones cs
+          SET estado = 'atendida',
               atendida_en = NOW(),
               atendida_por = $2
-          WHERE id = $1
-            AND estado = 'pendiente'
-          RETURNING id
+          FROM pedidos_cocina pk
+          WHERE pk.id = $1
+            AND pk.comanda_sesion_id = cs.id
+            AND cs.estado = 'pendiente'
+          RETURNING pk.id
+        `,
+        [id, actorNombre],
+      );
+
+      return result;
+    },
+
+    async markPaidById(id, actorNombre) {
+      const result = await client.query(
+        `
+          UPDATE comanda_sesiones cs
+          SET estado = 'cobrada',
+              cobrada_en = NOW(),
+              cobrada_por = $2
+          FROM pedidos_cocina pk
+          WHERE pk.id = $1
+            AND pk.comanda_sesion_id = cs.id
+            AND cs.estado = 'atendida'
+          RETURNING pk.id
         `,
         [id, actorNombre],
       );
@@ -1719,6 +1911,7 @@ export function bindEntityDaos(client) {
     subcategorias: bindSubcategoriasDao(client),
     productos: bindProductosDao(client),
     configuracionVisual: bindConfiguracionVisualDao(client),
+    pluginsOperativos: bindPluginsOperativosDao(client),
     mesaSesiones: bindMesaSesionesDao(client),
     mesaClientes: bindMesaClientesDao(client),
     mesaSesionLideres: bindMesaSesionLideresDao(client),

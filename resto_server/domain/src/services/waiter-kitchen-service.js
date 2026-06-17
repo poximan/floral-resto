@@ -19,6 +19,9 @@ async function getKitchenOrderDetail(db, kitchenOrderId) {
       estado: order.estado,
       creadaEn: order.creada_en,
       atendidaEn: order.atendida_en,
+      atendidaPor: order.atendida_por,
+      cobradaEn: order.cobrada_en,
+      cobradaPor: order.cobrada_por,
       totalArsCentavos: Number(order.total_ars_centavos),
       items: items.map((row) => ({
         titulo: row.titulo_snapshot,
@@ -62,7 +65,43 @@ async function receiveKitchenOrder(db, recordAuditEvent, publishDomainEvent, kit
 
     return {
       id: Number(result.rows[0].id),
-      status: 'atendido',
+      status: 'atendida',
+    };
+  });
+}
+
+async function markKitchenOrderAsPaid(db, recordAuditEvent, publishDomainEvent, kitchenOrderId, actorNombre) {
+  return db.withTransaction(async ({ client, repository }) => {
+    const result = await repository.markKitchenOrderAsPaid(kitchenOrderId, actorNombre ?? 'mozo');
+
+    if (result.rowCount === 0) {
+      throw new DomainError(404, 'El pedido de cocina atendido no existe');
+    }
+
+    await recordAuditEvent(client, {
+      agregado: 'pedidos_cocina',
+      agregadoId: kitchenOrderId,
+      evento: 'pedido_cocina_cobrado',
+      actorTipo: 'mozo',
+      actorReferencia: actorNombre ?? 'mozo',
+      payload: {},
+    });
+
+    await publishMobileCurrentRefresh(
+      client,
+      publishDomainEvent,
+      'pedido_cocina_cobrado',
+      [
+        MOBILE_CURRENT_FRAGMENT_KEYS.dashboardMetrics,
+        MOBILE_CURRENT_FRAGMENT_KEYS.dashboardRevenue,
+        MOBILE_CURRENT_FRAGMENT_KEYS.queueAtendidoPedidosCocina,
+        MOBILE_CURRENT_FRAGMENT_KEYS.queueCobradaPedidosCocina,
+      ],
+    );
+
+    return {
+      id: Number(result.rows[0].id),
+      status: 'cobrada',
     };
   });
 }
@@ -74,5 +113,7 @@ export function createWaiterKitchenService(pool, recordAuditEvent, publishDomain
     getKitchenOrderDetail: (kitchenOrderId) => getKitchenOrderDetail(db, kitchenOrderId),
     receiveKitchenOrder: (kitchenOrderId, actorNombre) =>
       receiveKitchenOrder(db, recordAuditEvent, publishDomainEvent, kitchenOrderId, actorNombre),
+    markKitchenOrderAsPaid: (kitchenOrderId, actorNombre) =>
+      markKitchenOrderAsPaid(db, recordAuditEvent, publishDomainEvent, kitchenOrderId, actorNombre),
   };
 }
