@@ -12,6 +12,7 @@ function mapDashboardPayload(row, config, range) {
       cola: metric.cola,
       pendientes: Number(metric.pendientes),
       atendidos: Number(metric.atendidos),
+      cobrados: Number(metric.cobrados ?? 0),
       tiempoMedioSegundos: Number(metric.tiempo_medio_segundos),
       tiempoMinimoSegundos: Number(metric.tiempo_minimo_segundos),
       tiempoMaximoSegundos: Number(metric.tiempo_maximo_segundos),
@@ -73,8 +74,13 @@ function groupQueuesByStatus(queues) {
     },
     atendidos: {
       consultas: queues.consultas.filter((item) => item.estado === 'atendido'),
-      pedidosCocina: queues.pedidosCocina.filter((item) => item.estado === 'atendido'),
+      pedidosCocina: queues.pedidosCocina.filter((item) => item.estado === 'atendida'),
       llamadosMozo: queues.llamadosMozo.filter((item) => item.estado === 'atendido'),
+    },
+    cobrados: {
+      consultas: [],
+      pedidosCocina: queues.pedidosCocina.filter((item) => item.estado === 'cobrada'),
+      llamadosMozo: [],
     },
   };
 }
@@ -86,6 +92,10 @@ function normalizeMobileQueueStatus(status) {
 
   if (status === 'atendido' || status === 'atendidos') {
     return 'atendido';
+  }
+
+  if (status === 'cobrada' || status === 'cobradas' || status === 'cobrado' || status === 'cobrados') {
+    return 'cobrada';
   }
 
   throw new DomainError(400, 'El estado solicitado es invalido');
@@ -133,6 +143,10 @@ function buildDashboardRevenueFragment(dashboard, generatedAt, scope = 'current'
 }
 
 function buildCurrentQueueFragment(range, realtimeQueues, status, queueType) {
+  const itemStatus = queueType === 'pedidosCocina' && status === 'atendido'
+    ? 'atendida'
+    : status;
+
   return {
     type: 'current_queue_fragment',
     generatedAt: new Date().toISOString(),
@@ -141,7 +155,7 @@ function buildCurrentQueueFragment(range, realtimeQueues, status, queueType) {
     toUtc: range.toUtc,
     queueType,
     status,
-    items: realtimeQueues[queueType].filter((item) => item.estado === status),
+    items: realtimeQueues[queueType].filter((item) => item.estado === itemStatus),
   };
 }
 
@@ -172,6 +186,8 @@ function mapPedidosCocina(rows) {
     creadaEn: row.creada_en,
     atendidaEn: row.atendida_en,
     atendidaPor: row.atendida_por,
+    cobradaEn: row.cobrada_en,
+    cobradaPor: row.cobrada_por,
     totalArsCentavos: Number(row.total_ars_centavos),
     detalle: {
       items: row.detalle_items ?? [],

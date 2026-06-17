@@ -6,8 +6,9 @@ export function createWaiterQueueService(pool) {
   return {
     getWaiterQueues: async (status) =>
       db.withConnection(async ({ repository }) => {
+        const kitchenStatus = status === 'atendido' ? 'atendida' : status;
         const consultaRows = await repository.listConsultaQueue(status);
-        const kitchenRows = await repository.listKitchenQueue(status);
+        const kitchenRows = await repository.listKitchenQueue(kitchenStatus);
         const waiterCallRows = await repository.listWaiterCallQueue(status);
 
         return {
@@ -30,6 +31,7 @@ export function createWaiterQueueService(pool) {
             estado: row.estado,
             creadaEn: row.creada_en,
             atendidaEn: row.atendida_en,
+            cobradaEn: row.cobrada_en,
             totalArsCentavos: Number(row.total_ars_centavos),
           })),
           llamadosMozo: waiterCallRows.map((row) => ({

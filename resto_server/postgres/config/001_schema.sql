@@ -107,6 +107,22 @@ CREATE TABLE configuracion_visual (
     CONSTRAINT ck_configuracion_visual_rate_positiva CHECK (usd_exchange_rate > 0)
 );
 
+CREATE TABLE plugins_operativos (
+    plugin_id TEXT PRIMARY KEY,
+    habilitado BOOLEAN NOT NULL,
+    configuracion_json JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_plugins_operativos_id_no_vacio CHECK (LENGTH(BTRIM(plugin_id)) > 0),
+    CONSTRAINT ck_plugins_operativos_config_objeto CHECK (JSONB_TYPEOF(configuracion_json) = 'object')
+);
+
+INSERT INTO plugins_operativos (plugin_id, habilitado, configuracion_json)
+VALUES (
+    'mesa-layout-konva',
+    TRUE,
+    '{"version":1,"salon":{"width":920,"height":520,"gridSize":40},"mesas":[]}'::jsonb
+);
+
 CREATE TABLE mesa_sesiones (
     id BIGSERIAL PRIMARY KEY,
     mesa_id BIGINT NOT NULL REFERENCES mesas(id),
@@ -169,14 +185,51 @@ CREATE TABLE comanda_sesiones (
     total_ars_centavos BIGINT NOT NULL DEFAULT 0,
     creada_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     confirmada_en TIMESTAMPTZ,
-    cobrado_en TIMESTAMPTZ,
+    atendida_en TIMESTAMPTZ,
+    atendida_por TEXT,
+    cobrada_en TIMESTAMPTZ,
+    cobrada_por TEXT,
     CONSTRAINT uq_comanda_sesiones_numero UNIQUE (mesa_sesion_id, numero_orden),
-    CONSTRAINT ck_comanda_sesiones_estado CHECK (estado IN ('abierta', 'confirmada')),
+    CONSTRAINT ck_comanda_sesiones_estado CHECK (estado IN ('abierta', 'pendiente', 'atendida', 'cobrada')),
     CONSTRAINT ck_comanda_sesiones_numero_positivo CHECK (numero_orden IS NULL OR numero_orden > 0),
     CONSTRAINT ck_comanda_sesiones_total_no_negativo CHECK (total_ars_centavos >= 0),
     CONSTRAINT ck_comanda_sesiones_estado_consistente CHECK (
-        (estado = 'abierta' AND numero_orden IS NULL AND confirmada_en IS NULL AND cobrado_en IS NULL)
-        OR (estado = 'confirmada' AND numero_orden IS NOT NULL AND confirmada_en IS NOT NULL)
+        (
+            estado = 'abierta'
+            AND numero_orden IS NULL
+            AND confirmada_en IS NULL
+            AND atendida_en IS NULL
+            AND atendida_por IS NULL
+            AND cobrada_en IS NULL
+            AND cobrada_por IS NULL
+        )
+        OR (
+            estado = 'pendiente'
+            AND numero_orden IS NOT NULL
+            AND confirmada_en IS NOT NULL
+            AND atendida_en IS NULL
+            AND atendida_por IS NULL
+            AND cobrada_en IS NULL
+            AND cobrada_por IS NULL
+        )
+        OR (
+            estado = 'atendida'
+            AND numero_orden IS NOT NULL
+            AND confirmada_en IS NOT NULL
+            AND atendida_en IS NOT NULL
+            AND atendida_por IS NOT NULL
+            AND cobrada_en IS NULL
+            AND cobrada_por IS NULL
+        )
+        OR (
+            estado = 'cobrada'
+            AND numero_orden IS NOT NULL
+            AND confirmada_en IS NOT NULL
+            AND atendida_en IS NOT NULL
+            AND atendida_por IS NOT NULL
+            AND cobrada_en IS NOT NULL
+            AND cobrada_por IS NOT NULL
+        )
     )
 );
 
@@ -254,16 +307,8 @@ CREATE TABLE llamados_mozo (
 CREATE TABLE pedidos_cocina (
     id BIGSERIAL PRIMARY KEY,
     comanda_sesion_id BIGINT NOT NULL REFERENCES comanda_sesiones(id),
-    estado TEXT NOT NULL,
     creada_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    atendida_en TIMESTAMPTZ,
-    atendida_por TEXT,
-    CONSTRAINT uq_pedidos_cocina_comanda_sesion UNIQUE (comanda_sesion_id),
-    CONSTRAINT ck_pedidos_cocina_estado CHECK (estado IN ('pendiente', 'atendido')),
-    CONSTRAINT ck_pedidos_cocina_atencion_consistente CHECK (
-        (estado = 'pendiente' AND atendida_en IS NULL AND atendida_por IS NULL)
-        OR (estado = 'atendido' AND atendida_en IS NOT NULL AND atendida_por IS NOT NULL)
-    )
+    CONSTRAINT uq_pedidos_cocina_comanda_sesion UNIQUE (comanda_sesion_id)
 );
 
 CREATE TABLE roles_web_sessions (

@@ -3,7 +3,7 @@ import { createRoleGuard } from './auth.js';
 function parseStatus(query) {
   const status = query?.status ?? 'pendiente';
 
-  if (!['pendiente', 'atendido'].includes(status)) {
+  if (!['pendiente', 'atendido', 'cobrada'].includes(status)) {
     throw new Error('El estado solicitado es invalido');
   }
 
@@ -84,6 +84,21 @@ export async function waiterRoutes(app, waiterService, authService) {
     );
 
     const payload = await waiterService.receiveKitchenOrder(
+      pedidoCocinaId,
+      request.authSession.actorNombre,
+    );
+
+    await authService.touchRelevantEvent(request.authSession.sessionToken);
+    return payload;
+  });
+
+  app.post('/internal/waiter/pedidos-cocina/:pedidoCocinaId/charge', { preHandler: mozoGuard }, async (request) => {
+    const pedidoCocinaId = parsePositiveId(
+      request.params.pedidoCocinaId,
+      'El identificador del pedido de cocina es invalido',
+    );
+
+    const payload = await waiterService.markKitchenOrderAsPaid(
       pedidoCocinaId,
       request.authSession.actorNombre,
     );

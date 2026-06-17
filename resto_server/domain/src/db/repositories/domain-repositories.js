@@ -63,6 +63,18 @@ export function createVisualConfigRepository(entityDaos) {
   };
 }
 
+export function createPluginConfigRepository(entityDaos) {
+  const { mesas, pluginsOperativos } = entityDaos;
+
+  return {
+    getPluginConfig: (pluginId) => pluginsOperativos.getById(pluginId),
+    getPluginConfigForUpdate: (pluginId) => pluginsOperativos.getByIdForUpdate(pluginId),
+    updatePluginEnabled: (pluginId, enabled) => pluginsOperativos.updateEnabled(pluginId, enabled),
+    updatePluginConfig: (pluginId, config) => pluginsOperativos.updateConfig(pluginId, config),
+    listMesaIds: () => mesas.listIds(),
+  };
+}
+
 export function createMesaPublicRepository(entityDaos) {
   const {
     mesas,
@@ -180,7 +192,15 @@ export function createMesaPublicRepository(entityDaos) {
     confirmComanda: (comandaSesionId, numeroOrden, totalArsCentavos) =>
       comandaSesiones.confirmOpen(comandaSesionId, numeroOrden, totalArsCentavos),
     createKitchenOrder: (comandaSesionId) => pedidosCocina.createPending(comandaSesionId),
-    clearOpenComanda: (mesaSesionId) => comandaSesiones.clearOpenByMesaSesion(mesaSesionId),
+    clearOpenComanda: async (mesaSesionId) => {
+      await comandaItems.deleteByOpenMesaSesion(mesaSesionId);
+      await comandaSesiones.clearOpenByMesaSesion(mesaSesionId);
+    },
+    discardOpenAndPendingComandas: async (mesaSesionId) => {
+      await pedidosCocina.deleteByDiscardableMesaSesion(mesaSesionId);
+      await comandaItems.deleteByDiscardableMesaSesion(mesaSesionId);
+      await comandaSesiones.clearDiscardableByMesaSesion(mesaSesionId);
+    },
     createWaiterCall: (mesaSesionId, clientSessionId) => llamadosMozo.createPending(mesaSesionId, clientSessionId),
     createConsulta: (mesaSesionId, clientSessionId) => consultasMaster.createPending(mesaSesionId, clientSessionId),
     insertConsultaMessage: (consultaId, autorTipo, autorReferencia, contenido) =>
@@ -214,6 +234,7 @@ export function createMesaAdminRepository(entityDaos) {
     mesaSesiones,
     mesaClientes,
     comandaSesiones,
+    comandaItems,
     consultasMaster,
     llamadosMozo,
     pedidosCocina,
@@ -232,10 +253,11 @@ export function createMesaAdminRepository(entityDaos) {
       consultasMaster.closePendingByMesaSesion(mesaSesionId, cerradoPor),
     receivePendingWaiterCalls: (mesaSesionId, actorNombre) =>
       llamadosMozo.receivePendingByMesaSesion(mesaSesionId, actorNombre),
-    receivePendingKitchenOrders: (mesaSesionId, actorNombre) =>
-      pedidosCocina.receivePendingByMesaSesion(mesaSesionId, actorNombre),
-    markConfirmedComandasAsPaid: (mesaSesionId) => comandaSesiones.markConfirmedComandasAsPaid(mesaSesionId),
-    clearOpenComanda: (mesaSesionId) => comandaSesiones.clearOpenByMesaSesion(mesaSesionId),
+    discardOpenAndPendingComandas: async (mesaSesionId) => {
+      await pedidosCocina.deleteByDiscardableMesaSesion(mesaSesionId);
+      await comandaItems.deleteByDiscardableMesaSesion(mesaSesionId);
+      await comandaSesiones.clearDiscardableByMesaSesion(mesaSesionId);
+    },
   };
 }
 
@@ -261,6 +283,8 @@ export function createWaiterRepository(entityDaos) {
     listKitchenOrderItems: (comandaSesionId) => comandaItems.listKitchenItems(comandaSesionId),
     receiveKitchenOrder: (kitchenOrderId, actorNombre) =>
       pedidosCocina.receiveById(kitchenOrderId, actorNombre),
+    markKitchenOrderAsPaid: (kitchenOrderId, actorNombre) =>
+      pedidosCocina.markPaidById(kitchenOrderId, actorNombre),
     getWaiterCall: (waiterCallId) => llamadosMozo.getWithContext(waiterCallId),
     receiveWaiterCall: (waiterCallId, actorNombre) => llamadosMozo.receiveById(waiterCallId, actorNombre),
   };
@@ -289,6 +313,7 @@ export function bindDomainRepositories(client) {
     authSession: createAuthSessionRepository(entityDaos),
     catalog: createCatalogRepository(entityDaos),
     visualConfig: createVisualConfigRepository(entityDaos),
+    pluginConfig: createPluginConfigRepository(entityDaos),
     mesaPublic: createMesaPublicRepository(entityDaos),
     mesaAdmin: createMesaAdminRepository(entityDaos),
     waiter: createWaiterRepository(entityDaos),

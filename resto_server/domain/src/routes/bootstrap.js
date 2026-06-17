@@ -32,6 +32,7 @@ export async function bootstrapRoutes(app, config) {
     metrics: [
       'pendientes-por-cola',
       'atendidos-por-cola',
+      'cobrados-por-cola',
       'tiempos-minimos',
       'tiempos-maximos',
       'tiempos-medios',

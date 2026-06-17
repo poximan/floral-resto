@@ -48,6 +48,7 @@ const CURRENT_FRAGMENT_KEYS = {
   queueAtendidoConsultas: 'queue.atendido.consultas',
   queuePendientePedidosCocina: 'queue.pendiente.pedidosCocina',
   queueAtendidoPedidosCocina: 'queue.atendido.pedidosCocina',
+  queueCobradaPedidosCocina: 'queue.cobrada.pedidosCocina',
   queuePendienteLlamadosMozo: 'queue.pendiente.llamadosMozo',
   queueAtendidoLlamadosMozo: 'queue.atendido.llamadosMozo',
 };
@@ -151,6 +152,11 @@ function buildCurrentFragmentDefinition(fragmentKey, deviceId) {
       return {
         topic: topics.currentQueue('atendidos', 'pedidos-cocina'),
         pathname: '/internal/mobile/current/queues/atendido/pedidosCocina',
+      };
+    case CURRENT_FRAGMENT_KEYS.queueCobradaPedidosCocina:
+      return {
+        topic: topics.currentQueue('cobrados', 'pedidos-cocina'),
+        pathname: '/internal/mobile/current/queues/cobrada/pedidosCocina',
       };
     case CURRENT_FRAGMENT_KEYS.queuePendienteLlamadosMozo:
       return {
