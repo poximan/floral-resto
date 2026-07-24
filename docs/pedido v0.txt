@@ -70,7 +70,7 @@ requeridos para la construccion del dashboard. sera la unica autoridad de verdad
 
 en cuando a las tecnologias, framework front VUE. backend full nodejs, base de datos postgresql y broker mqtt de hivemq.
 debe estar todo dockerizado. cada responsabilidad del sistema, debe ser un micro-servicio o como mucho uno y solo uno 
-servicio macro. dentro de la subcarpeta ./resto_server debera estar el orquestador docker-compose y una carpeta por
+servicio macro. dentro de la subcarpeta ./resto-server debera estar el orquestador docker-compose y una carpeta por
 cada servicio. los nombres de carpeta para servicio deben llamarse como el servicio que representan. 
 todos los valores sensibles de la app se cargaran desde .env (exluido en git) con un .env.example que hara de plantilla (incluido en git)
 
@@ -85,4 +85,4 @@ el dash tendra informacion de resumen tipica, esto se vera en detalle mas adelan
 esta app estara suscripta a un servicio mqtt desde donde recibira todas las novedades sobre los estados de cada mensaje y metricas requeridas por el dashboard.
 todos los valores sensibles de la app se cargaran desde local.properties (exluido en git) con un local.properties.example que hara de plantilla (incluido en git)
 
-la app debera estar desplegada en la subcarpeta ./resto_app
+la app debera estar desplegada en la subcarpeta ./resto-app

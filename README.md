@@ -1,135 +1,84 @@
-# floral-resto
+# Floral Resto
 
-Sistema para operacion de restobar con carta web para clientes, gestion web interna para mozo y encargado, app Android de lectura para encargado y una capa edge separada para exposicion publica.
+Plataforma del restaurante organizada en tres unidades desplegables:
 
-## Componentes
+| Carpeta | Responsabilidad |
+| --- | --- |
+| `resto-server` | Dominio, persistencia, API HTTP/WebSocket, MQTT y frontends. |
+| `resto-edge` | Adaptacion del canal Cloudflare, cliente de tunel y observabilidad del producto. |
+| `resto-app` | Aplicacion Android conectada por MQTT. |
 
-- `resto_server`: stack Docker del restaurante. Contiene negocio, API, persistencia, MQTT de dominio, assets y frontends carta/gestion.
-- `resto_edge`: stack Docker de exposicion publica. Contiene tunel Cloudflare, adapter estable y router publico.
-- `resto_app`: app Android conectada por MQTT.
-- `docs`: documentacion funcional y tecnica.
+El ruteo no vive en este repositorio. La unica frontera es `edge-gateway`, en el
+proyecto central `platform/edge-platform`.
 
-## Arquitectura resumida
+## Arquitectura
 
-El server restaurante conserva la fuente de verdad del negocio:
+```text
+Cloudflare
+  -> tunnel-client
+  -> channel-adapter [Host: floral.internal]
+  -> edge-gateway
+  -> floral-web-server | floral-admin-dashboard
+```
 
-- `web-server`: sirve las SPA `web-carta` y `web-gestion`; proxifica `/api`, `/assets` y WebSocket hacia `http-gw`.
-- `http-gw`: borde HTTP/WebSocket del restaurante. No sirve HTML ni toca PostgreSQL.
-- `domain`: nucleo de negocio y unico servicio habilitado para leer y escribir PostgreSQL.
-- `mqtt-client`: adaptador entre el dominio, HiveMQ Cloud y la app Android. Consulta `tunel-service` solo para obtener la URL publica vigente.
-- `postgres`: persistencia unica del sistema.
+- `tunnel-client` es dueno del proceso Cloudflare y publica `/entrypoint` con la
+  URL efimera vigente.
+- `channel-adapter` estabiliza el canal, identifica el producto y devuelve una
+  respuesta visible si el gateway no esta disponible.
+- `edge-gateway` decide rutas a partir de su archivo central `routes.txt`.
+- `admin-dashboard` conserva telemetria en memoria y no monta el socket Docker.
 
-El edge publica y enruta sin conocer reglas de negocio:
+## Redes Docker
 
-- `tunel-service`: crea el tunel efimero de Cloudflare y expone internamente `/entrypoint` con la URL vigente.
-- `edge-adapter-tunel`: adapter HTTP minimo y estable para Cloudflare Tunnel. No se buildea; apunta a `public-router`.
-- `public-router`: decide rutas publicas. Hoy `/carta`, `/gestion`, `/api` y `/assets` van al `web-server`; cualquier otra ruta queda fuera del restaurante y responde 404 hasta que exista otro servicio.
-- `admin-dashboard`: dashboard publico de solo lectura para operacion tecnica del edge. No monta Docker socket, no persiste datos y no ejecuta acciones sobre contenedores.
+Los dos stacks del producto comparten `restobar_edge`. Los servicios que deben
+alcanzar o ser alcanzados por la frontera central tambien se conectan a
+`servicoop-edge-net`.
 
-Ambos stacks se conectan por la red Docker externa `restobar_edge`.
-
-## Entradas locales
-
-- Carta directa al server: `http://localhost:5175`
-- Gestion directa al server: `http://localhost:5174`
-- Entrada publica local del edge: `http://localhost:8088`
-
-## Arranque
-
-Crear una vez la red compartida:
+Crear una sola vez la red interna compartida por los dos stacks de Floral:
 
 ```powershell
 docker network create restobar_edge
 ```
 
-Levantar el server restaurante:
+`servicoop-edge-net` pertenece a `edge-platform` y se crea al desplegar primero
+la plataforma central.
 
-```powershell
-cd resto_server
-docker compose up --build
-```
+## Puesta en marcha
 
-Levantar el edge publico:
+1. Copiar `resto-server/.env.example` como `resto-server/.env`.
+2. Copiar `resto-edge/.env.example` como `resto-edge/.env`.
+3. Reemplazar todos los valores marcados para completar.
+4. Levantar primero el gateway central, despues `resto-server` y finalmente
+   `resto-edge`.
 
-```powershell
-cd resto_edge
-docker compose up --build
-```
+La configuracion no define credenciales funcionales por defecto.
 
-## Publicacion remota
+## Rutas publicas
 
-La exposicion publica usa Cloudflare Tunnel:
+Las reglas con scope `floral.internal` se mantienen en el gateway central:
 
-```text
-Cloudflare -> tunel-service -> edge-adapter-tunel -> public-router -> web-server
-```
+| Ruta | Destino |
+| --- | --- |
+| `/` | Redireccion a `/carta`. |
+| `/carta` y `/carta/` | `floral-web-server`. |
+| `/gestion` y `/gestion/` | `floral-web-server`. |
+| `/api/` y `/assets/` | `floral-web-server`. |
+| `/admin` y `/admin/` | `floral-admin-dashboard`. |
 
-Rutas publicas del restaurante:
+`/admin` usa autenticacion Basic configurada mediante
+`ADMIN_DASHBOARD_USERNAME` y `ADMIN_DASHBOARD_PASSWORD`.
 
-- `/carta`
-- `/gestion`
-- `/api`
-- `/assets`
+## Persistencia
 
-Ruta publica de administracion tecnica:
+`resto-server/postgres/config/001_schema.sql` define estructura, funciones de
+normalizacion y restricciones. Los CSV opcionales viven en
+`resto-server/postgres/datos` y son procesados por `002_seed_csv.sh`.
 
-- `/admin`
+El esquema y los datos persistentes son responsabilidades distintas: cambiar el
+SQL no migra automaticamente un volumen PostgreSQL existente.
 
-`/admin` usa autenticacion Basic. Las credenciales por defecto del entorno local son `admin` / `supersecreta`; pueden cambiarse en `resto_edge/.env` con `ADMIN_DASHBOARD_USERNAME` y `ADMIN_DASHBOARD_PASSWORD`.
+## Aplicacion Android
 
-El dashboard recibe logs JSON de `public-router` por syslog UDP y mantiene solo memoria de la sesion vigente del contenedor. Si `admin-dashboard` se reinicia, se pierde el historico observado. Para minimizar riesgo operativo, no se monta `/var/run/docker.sock`; por eso muestra salud HTTP de servicios accesibles, metricas de la VM Linux visible desde Docker y metricas del propio contenedor `admin-dashboard`, pero no consumo CPU/RAM individual de cada contenedor.
-
-Rutas futuras ajenas al restaurante, por ejemplo un proveedor de APKs, deben agregarse en `resto_edge/public-router` y apuntar a su propio servicio.
-
-## Frontends
-
-Los frontends fuente viven en:
-
-- `resto_server/web-server/web-carta`
-- `resto_server/web-server/web-gestion`
-
-En runtime quedan servidos por `web-server`; no hay un contenedor independiente por frontend.
-
-## App Android
-
-La app vive en `resto_app` y se conecta exclusivamente por MQTT a HiveMQ Cloud. No usa HTTP directo contra el server. Para abrir gestion web, solicita por MQTT la URL publica vigente; `mqtt-client` la obtiene desde `tunel-service`.
-
-## Base de datos
-
-PostgreSQL se maneja con snapshot unico de esquema. Si cambia el modelo, la instancia debe recrearse desde cero; no se contemplan migraciones adaptativas en runtime.
-
-`resto_server/postgres/config/001_schema.sql` define estructura, funciones de normalizacion y constraints. No contiene datos de negocio embebidos.
-
-La carga de datos depende de CSV opcionales en `resto_server/postgres/datos`:
-
-- `configuracion_visual.csv`
-- `mesas.csv`
-- `categorias.csv`
-- `subcategorias.csv`
-- `productos.csv`
-
-Si un CSV existe, `resto_server/postgres/config/002_seed_csv.sh` lo procesa. Si no existe, la tabla queda sin carga automatica. Las colisiones semanticas de catalogo se comparan con tolerancia `85%`; una fila candidata que coincide con datos ya presentes se descarta.
-
-PostgreSQL solo ejecuta `001_schema.sql` durante la creacion inicial del volumen. La carga CSV corre despues mediante el servicio one-shot `postgres-data-loader`, una vez que PostgreSQL esta listo. Ese loader se ejecuta en cada `docker compose up` y descarta filas ya cargadas por comparacion semantica.
-
-Cuando el codigo cambia el esquema, el volumen persistente anterior no se modifica solo. Para aplicar el esquema real definido en `resto_server/postgres/config/001_schema.sql`, recrear el stack desde cero:
-
-```powershell
-cd resto_server
-docker compose down -v
-docker compose up --build
-```
-
-El `-v` elimina el volumen `postgres_data`; usarlo solo cuando se acepta descartar la base local actual. Este proyecto no debe resolver cambios de modelo con `ALTER TABLE`.
-
-Si solo cambia nginx o algun frontend web, reconstruir al menos `web-server`, porque `nginx.conf` y los bundles quedan copiados dentro de la imagen:
-
-```powershell
-cd resto_server
-docker compose up --build web-server
-```
-
-## Documentacion util
-
-- [Pedido v1](docs/pedido%20v1.txt)
-- [Diagrama draw.io](docs/arquit.drawio)
+`resto-app` se conecta exclusivamente por MQTT. Para abrir la gestion web,
+solicita la URL publica; `mqtt-client` la consulta en
+`tunnel-client:/entrypoint`.

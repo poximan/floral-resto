@@ -1,0 +1,127 @@
+name: floral-resto-server
+
+services:
+  # Excepcion de terceros: PostgreSQL conserva su imagen oficial; su healthcheck
+  # y la tarea one-shot se definen aqui porque no existe un Dockerfile propio.
+  postgres:
+    image: postgres:16-alpine
+    container_name: floral-resto-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_HOST_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/config/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./postgres/datos:/postgres-datos:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  postgres-data-loader:
+    image: postgres:16-alpine
+    container_name: floral-resto-postgres-data-loader
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      CSV_DATA_DIR: /postgres-datos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./postgres/config:/postgres-config:ro
+      - ./postgres/datos:/postgres-datos:ro
+      - postgres_dataloader:/var/lib/postgresql/data
+    command: ["sh", "/postgres-config/002_seed_csv.sh"]
+
+  domain:
+    image: floral-resto-domain:2.0.0
+    build:
+      context: ./domain
+    container_name: floral-resto-domain
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres-data-loader:
+        condition: service_completed_successfully
+
+  http-gw:
+    image: floral-resto-http-gw:2.0.0
+    build:
+      context: ./http-gw
+    container_name: floral-resto-http-gw
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - domain
+    ports:
+      - "${HTTP_GW_HOST_PORT}:8080"
+    volumes:
+      - ./assets:/app/assets:ro
+    networks:
+      - default
+      - restobar-edge
+
+  web-server:
+    image: floral-resto-web-server:2.0.0
+    build:
+      context: ./web-server
+      dockerfile: Dockerfile
+    container_name: floral-resto-web-server
+    restart: unless-stopped
+    depends_on:
+      - http-gw
+    ports:
+      - "${WEB_CARTA_PORT}:8080"
+      - "${WEB_GESTION_PORT}:8081"
+    networks:
+      default:
+      restobar-edge:
+      servicoop-edge:
+        aliases:
+          - floral-web-server
+
+  mqtt-client:
+    image: floral-resto-mqtt-client:2.0.0
+    build:
+      context: ./mqtt-client
+    container_name: floral-resto-mqtt-client
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      domain:
+        condition: service_started
+    networks:
+      - default
+      - restobar-edge
+
+volumes:
+  postgres_data:
+  postgres_dataloader:
+
+networks:
+  restobar-edge:
+    external: true
+    name: restobar_edge
+  servicoop-edge:
+    external: true
+    name: servicoop-edge-net

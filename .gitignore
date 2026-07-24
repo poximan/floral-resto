@@ -2,18 +2,18 @@
 **/.env.*
 !**/.env.example
 
-resto_server/postgres/data/
-resto_server/**/node_modules/
+resto-server/postgres/data/
+resto-server/**/node_modules/
 
-resto_app/local.properties
-resto_app/**/local.properties
-!resto_app/local.properties.example
-resto_app/.gradle/
-resto_app/.idea/
-resto_app/build/
-resto_app/captures/
-resto_app/.externalNativeBuild/
-resto_app/.cxx/
+resto-app/local.properties
+resto-app/**/local.properties
+!resto-app/local.properties.example
+resto-app/.gradle/
+resto-app/.idea/
+resto-app/build/
+resto-app/captures/
+resto-app/.externalNativeBuild/
+resto-app/.cxx/
 
 *.jks
 *.keystore

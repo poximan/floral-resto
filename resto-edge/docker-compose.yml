@@ -1,0 +1,50 @@
+name: floral-resto-edge
+
+services:
+  admin-dashboard:
+    image: floral-resto-admin-dashboard:2.0.0
+    container_name: floral-resto-admin-dashboard
+    build:
+      context: ./admin-dashboard
+    restart: unless-stopped
+    environment:
+      ADMIN_DASHBOARD_USERNAME: ${ADMIN_DASHBOARD_USERNAME:?ADMIN_DASHBOARD_USERNAME es obligatorio}
+      ADMIN_DASHBOARD_PASSWORD: ${ADMIN_DASHBOARD_PASSWORD:?ADMIN_DASHBOARD_PASSWORD es obligatorio}
+    networks:
+      restobar-edge:
+      servicoop-edge:
+        aliases:
+          - floral-admin-dashboard
+
+  channel-adapter:
+    image: floral-resto-channel-adapter:2.0.0
+    container_name: floral-resto-channel-adapter
+    build:
+      context: ./channel-adapter
+    restart: unless-stopped
+    ports:
+      - "${CHANNEL_ADAPTER_HOST_PORT:-5088}:8080"
+    networks:
+      restobar-edge:
+      servicoop-edge:
+        aliases:
+          - floral-channel-adapter
+
+  tunnel-client:
+    image: floral-resto-tunnel-client:2.0.0
+    container_name: floral-resto-tunnel-client
+    build:
+      context: ./tunnel-client
+    restart: unless-stopped
+    depends_on:
+      - channel-adapter
+    networks:
+      - restobar-edge
+
+networks:
+  restobar-edge:
+    external: true
+    name: restobar_edge
+  servicoop-edge:
+    external: true
+    name: servicoop-edge-net

@@ -4,7 +4,7 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontStyle=1;fontSize=18;align=center;spacingLeft=12;labelPosition=center;verticalLabelPosition=top;verticalAlign=bottom;perimeterSpacing=0;arcSize=6;labelBackgroundColor=none;fillColor=none;" value="STACK LOCAL SEPARADO&#xa;resto_edge publica y resto_server resuelve restaurante" vertex="1">
+        <mxCell id="10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontStyle=1;fontSize=18;align=center;spacingLeft=12;labelPosition=center;verticalLabelPosition=top;verticalAlign=bottom;perimeterSpacing=0;arcSize=6;labelBackgroundColor=none;fillColor=none;" value="STACK LOCAL SEPARADO&#xa;resto-edge publica y resto-server resuelve restaurante" vertex="1">
           <mxGeometry height="690" width="940" x="270" y="100" as="geometry" />
         </mxCell>
         <mxCell id="20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="Navegador carta&#xa;Cliente de mesa&#xa;http://localhost:5175" vertex="1">
@@ -13,34 +13,34 @@
         <mxCell id="21" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="Navegador gestion&#xa;Mozo / encargado&#xa;http://localhost:5174" vertex="1">
           <mxGeometry height="90" width="200" x="10" y="270" as="geometry" />
         </mxCell>
-        <mxCell id="22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="Cloudflare Tunnel&#xa;URL efimera publica&#xa;Dato expuesto por tunel-service" vertex="1">
+        <mxCell id="22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="Cloudflare Tunnel&#xa;URL efimera publica&#xa;Dato expuesto por tunnel-client" vertex="1">
           <mxGeometry height="100" width="200" x="10" y="440" as="geometry" />
         </mxCell>
         <mxCell id="23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="HiveMQ Cloud&#xa;Broker MQTT externo" vertex="1">
           <mxGeometry height="80" width="180" x="1250" y="300" as="geometry" />
         </mxCell>
-        <mxCell id="24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="App Android / resto_app&#xa;Encargado movil&#xa;Solo MQTT&#xa;Pide URL gestion al abrir" vertex="1">
+        <mxCell id="24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="App Android / resto-app&#xa;Encargado movil&#xa;Solo MQTT&#xa;Pide URL gestion al abrir" vertex="1">
           <mxGeometry height="90" width="180" x="1250" y="500" as="geometry" />
         </mxCell>
         <mxCell id="30" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="web-server&#xa;Servidor web del restaurante&#xa;Builda y sirve SPA carta/gestion&#xa;Proxy /api, /assets y WebSocket" vertex="1">
           <mxGeometry height="180" width="220" x="340" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="http-gw&#xa;Borde HTTP / WebSocket&#xa;API para carta y gestion&#xa;Consume stream interno de domain&#xa;Consulta tunel-service bajo demanda web" vertex="1">
+        <mxCell id="31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="http-gw&#xa;Borde HTTP / WebSocket&#xa;API para carta y gestion&#xa;Consume stream interno de domain&#xa;Consulta tunnel-client bajo demanda web" vertex="1">
           <mxGeometry height="130" width="220" x="740" y="160" as="geometry" />
         </mxCell>
         <mxCell id="32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="domain&#xa;Fuente de verdad unica&#xa;Reglas de negocio y FSM&#xa;Unico acceso a PostgreSQL" vertex="1">
           <mxGeometry height="130" width="220" x="830" y="390" as="geometry" />
         </mxCell>
-        <mxCell id="33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="tunel-service&#xa;Duenio URL efimera&#xa;HTTP interno /entrypoint&#xa;Ejecuta cloudflared&#xa;Target unico: edge-adapter-tunel" vertex="1">
+        <mxCell id="33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="tunnel-client&#xa;Duenio URL efimera&#xa;HTTP interno /entrypoint&#xa;Ejecuta cloudflared&#xa;Target unico: channel-adapter" vertex="1">
           <mxGeometry height="110" width="220" x="560" y="390" as="geometry" />
         </mxCell>
-        <mxCell id="37" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="edge-adapter-tunel&#xa;Nginx minimo sin build&#xa;Target estable del tunel&#xa;Proxy a public-router&#xa;503 si upstream no esta" vertex="1">
+        <mxCell id="37" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="channel-adapter&#xa;Nginx minimo sin build&#xa;Target estable del tunel&#xa;Proxy al edge-gateway central&#xa;503 si upstream no esta" vertex="1">
           <mxGeometry height="120" width="220" x="300" y="390" as="geometry" />
         </mxCell>
-        <mxCell id="38" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="public-router&#xa;Router publico de resto_edge&#xa;/carta y /gestion a web-server&#xa;/api y /assets al restaurante&#xa;otras rutas fuera del server" vertex="1">
+        <mxCell id="38" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="edge-gateway central&#xa;Router publico de resto-edge&#xa;/carta y /gestion a web-server&#xa;/api y /assets al restaurante&#xa;otras rutas fuera del server" vertex="1">
           <mxGeometry height="130" width="220" x="300" y="530" as="geometry" />
         </mxCell>
-        <mxCell id="34" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="mqtt-client&#xa;Adaptador MQTT para Android&#xa;Consume stream interno de domain&#xa;Consulta tunel-service /entrypoint&#xa;Publica URL gestion y fragments" vertex="1">
+        <mxCell id="34" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="mqtt-client&#xa;Adaptador MQTT para Android&#xa;Consume stream interno de domain&#xa;Consulta tunnel-client /entrypoint&#xa;Publica URL gestion y fragments" vertex="1">
           <mxGeometry height="130" width="220" x="950" y="600" as="geometry" />
         </mxCell>
         <mxCell id="35" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;labelBackgroundColor=none;fillColor=none;" value="postgres&#xa;Persistencia unica&#xa;Esquema snapshot unico&#xa;Historicos y estado operativo" vertex="1">

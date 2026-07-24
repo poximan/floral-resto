@@ -4,8 +4,8 @@ Necesito que diseñes e implementes un ecosistema para un pequeño o mediano res
 2. Una app movil Android de consulta para el encargado, conectada exclusivamente por MQTT.
 
 Idioma y metodologia obligatorios:
-- microservicios en `./resto_server`
-- app Android en `./resto_app`
+- microservicios en `./resto-server`
+- app Android en `./resto-app`
 - backend Node.js + Fastify + JavaScript
 - frontend web con Vue 3 + Vite
 - Android con Kotlin + Jetpack Compose + Room
@@ -260,7 +260,7 @@ Configuracion sensible de Android:
 - incluir host/puerto MQTT, credenciales, topics base y timeouts
 
 F. ARQUITECTURA TECNICA REQUERIDA
-Dentro de `./resto_server` debe existir un `docker-compose` y una carpeta por servicio.
+Dentro de `./resto-server` debe existir un `docker-compose` y una carpeta por servicio.
 
 Servicios propuestos:
 - `web-entrypoint`
@@ -281,7 +281,7 @@ Realtime web:
 
 Despliegue:
 - server en LAN
-- Cloudflare Tunnel apunta solo a `edge-adapter-tunel`
+- Cloudflare Tunnel apunta solo a `channel-adapter`
 - acceso interno solo en LAN
 - URL publica expone actualmente `/carta` y `/gestion`
 
