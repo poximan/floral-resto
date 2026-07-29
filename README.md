@@ -9,7 +9,7 @@ Plataforma del restaurante organizada en tres unidades desplegables:
 | `resto-app` | Aplicacion Android conectada por MQTT. |
 
 El ruteo no vive en este repositorio. La unica frontera es `edge-gateway`, en el
-proyecto central `platform/edge-platform`.
+proyecto central `servicoop/platform/edge-platform`.
 
 ## Arquitectura
 
